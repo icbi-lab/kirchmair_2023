@@ -18,7 +18,7 @@ Rscript -e 'devtools::install_github("AlexanderKirchmair/DeLuciatoR")' # version
 mkdir logs
 ```
 
-[NGSCheckMate-1.0.0](https://github.com/parklab/NGSCheckMate)
+Set up [NGSCheckMate-1.0.0](https://github.com/parklab/NGSCheckMate)
 ```bash
 cd lib
 git clone https://github.com/parklab/NGSCheckMate.git
@@ -37,8 +37,7 @@ cd ..
 conda activate cd8
 ```
 
-Memory differentiation
-[MEM](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE234099)
+Memory differentiation samples: [GSE234099](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE234099)
 ```bash
 mkdir -p data/rnaseq/MEM/00_RAW
 accs=$(awk 'NR>1 {print $2 "-" $1}' "tables/GSE234099.txt")
@@ -49,8 +48,7 @@ do
 done
 ```
 
-Exhaustion
-[EXH](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE234100)
+Exhaustion samples: [GSE234100](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE234100)
 ```bash
 mkdir -p data/rnaseq/EXH/00_RAW
 accs=$(awk 'NR>1 {print $2 "-" $1}' "tables/GSE234100.txt")
@@ -63,7 +61,7 @@ done
 
 ### Preprocessing
 
-Trimming
+Trimming:
 ```bash
 mkdir data/rnaseq/MEM/01_TRIMMED
 for file in data/rnaseq/MEM/00_RAW/*fastq.gz
@@ -78,7 +76,7 @@ do
 done
 ```
 
-Read alignment and quantification using the [nf-core/rnaseq-3.4](https://nf-co.re/rnaseq/3.4) pipeline (set genome paths in 'lib/run_rnaseq.sh')
+Read alignment and quantification using the [nf-core/rnaseq-3.4](https://nf-co.re/rnaseq/3.4) pipeline (set genome paths in 'lib/run_rnaseq.sh'):
 ```bash
 bash -i lib/run_rnaseq.sh 'tables/samplesheet_mem.csv' 'data/rnaseq/MEM/02_NF_results'
 mv .nextflow.log logs/mem.nextflow.log
@@ -88,7 +86,7 @@ mv .nextflow.log logs/exh.nextflow.log
 ```
 
 
-Check if the paired samples are matching with [NGSCheckMate-1.0.0](https://github.com/parklab/NGSCheckMate)
+Check if the paired samples are matching with [NGSCheckMate-1.0.0](https://github.com/parklab/NGSCheckMate):
 ```bash
 conda activate cd8_ngscm
 
