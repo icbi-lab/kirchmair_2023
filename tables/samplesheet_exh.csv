@@ -1,0 +1,9 @@
+sample,fastq_1,fastq_2,strandedness,Celltype,Donor,Batch
+TEFF1a,data/rnaseq/EXH/01_TRIMMED/TEFF1a.fastq.gz,,forward,TEFF,1,A
+TEFF1b,data/rnaseq/EXH/01_TRIMMED/TEFF1b.fastq.gz,,forward,TEFF,1,B
+TEFF2,data/rnaseq/EXH/01_TRIMMED/TEFF2.fastq.gz,,forward,TEFF,2,A
+TEFF3,data/rnaseq/EXH/01_TRIMMED/TEFF3.fastq.gz,,forward,TEFF,3,B
+TEX1a,data/rnaseq/EXH/01_TRIMMED/TEX1a.fastq.gz,,forward,TEX,1,A
+TEX1b,data/rnaseq/EXH/01_TRIMMED/TEX1b.fastq.gz,,forward,TEX,1,B
+TEX2,data/rnaseq/EXH/01_TRIMMED/TEX2.fastq.gz,,forward,TEX,2,A
+TEX3,data/rnaseq/EXH/01_TRIMMED/TEX3.fastq.gz,,forward,TEX,3,B

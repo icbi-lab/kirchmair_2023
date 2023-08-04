@@ -1,0 +1,260 @@
+
+volcano <- function (data, x = NULL, y = NULL, color = NULL, label = NULL, label_ix = NULL, labface = "plain",
+          nlabels = NULL, lab_size = 12, repel = 1.5, shape = 16, xbias = 0.6,
+          attract = NULL, box.padding = 0.5, max_overlaps = Inf, seed = 123, 
+          ptres = 0.05, clip = FALSE, symlim = TRUE, expand = c(0, 0), nbreaks_x = 7, nbreaks_y = 7, xlim = NULL, ylim = NULL, 
+          color_up = "#eb9d0e", color_down = "#146bc7", color_nonsig = "#4d4d4d", 
+          title = NULL, title_size = NULL, point_size = 2, scale_size = FALSE, 
+          axis_size = NULL, axis_title_size = NULL, leg_size = NULL, lwd = 0.8, at_zero = FALSE, 
+          ...){
+  
+  data <- as.data.frame(data)
+  x <- rlang::enquo(x)
+  y <- rlang::enquo(y)
+  if (rlang::quo_is_null(x)) {
+    x <- rlang::sym(grep("lfc|log2FoldChange|logFC|log2FC|nes", 
+                         names(data), value = TRUE, ignore.case = TRUE)[1])
+  }
+  if (rlang::quo_is_null(y)) {
+    y <- rlang::sym(grep("padj|fdr", names(data), value = TRUE, 
+                         ignore.case = TRUE)[1])
+  }
+  data$x <- data[[rlang::as_name(x)]]
+  data$y <- -log10(data[[rlang::as_name(y)]])
+  data <- data[!is.na(data$x) & !is.na(data$y), ]
+  data$xtmp <- data$x
+  data$xtmp[is.infinite(data$xtmp)] <- max(abs(data$xtmp[!is.infinite(data$xtmp)])) * 
+    sign(data$xtmp[is.infinite(data$xtmp)])
+  data$ytmp <- data$y
+  data$ytmp[is.infinite(data$ytmp)] <- max(abs(data$ytmp[!is.infinite(data$ytmp)])) * 
+    sign(data$ytmp[is.infinite(data$ytmp)])
+  data$score <- abs(as.numeric(scale(data$xtmp, center = FALSE)))*xbias + 
+    abs(as.numeric(scale(data$ytmp, center = FALSE)))
+  data$score[is.na(data$score)] <- 0
+  data$class <- "not signif."
+  data$class[data[[rlang::as_name(y)]] <= ptres & data$x > 
+               0] <- "up"
+  data$class[data[[rlang::as_name(y)]] <= ptres & data$x < 
+               0] <- "down"
+  data$score[data$class == "not signif."] <- data$score[data$class == "not signif."] * 0.001
+  if (is.null(title_size)) 
+    title_size <- lab_size
+  if (is.null(axis_size)) axis_size <- lab_size
+  if (is.null(axis_title_size)) axis_title_size <- axis_size
+  if (is.null(leg_size)) 
+    leg_size <- lab_size
+  label <- rlang::enquo(label)
+  if (rlang::quo_is_null(label)) {
+    data[["label"]] <- rownames(data)
+  }
+  else {
+    data[["label"]] <- data[[rlang::as_name(label)]]
+  }
+  
+  
+  data <- data[order(data$score, decreasing = TRUE), ]
+  if (is.null(nlabels)) {
+    nlabels <- min(20, ceiling(nrow(data)/10))
+  }
+  if (is.infinite(nlabels)) {
+    nlabels <- nrow(data)
+  }
+  
+  
+  data$do_label <- FALSE
+  tmp <- data[nat(data$label == ""),, drop = FALSE]
+  data <- data[!nat(data$label == ""),, drop = FALSE]
+  
+  
+  nlabels_left <- nlabels_right <- 0
+  if (nrow(subset(data, x < 0)) > 0) 
+    nlabels_left <- ceiling(nlabels/2 * max(subset(data, 
+                                                   x < 0)$score, na.rm = TRUE)/max(data$score, na.rm = TRUE))
+  if (nrow(subset(data, x > 0)) > 0) 
+    nlabels_right <- ceiling(nlabels/2 * max(subset(data, 
+                                                    x > 0)$score, na.rm = TRUE)/max(data$score, na.rm = TRUE))
+  if (is.na(nlabels_left)) 
+    nlabels_left <- 0
+  if (is.na(nlabels_right)) 
+    nlabels_right <- 0
+  
+  data$do_label[data$x < 0][1:nlabels_left] <- TRUE
+  data$do_label[data$x > 0][1:nlabels_right] <- TRUE
+  
+  data$do_label[is.na(data$do_label)] <- FALSE
+  if (sum(data$do_label) < nlabels) {
+    data$do_label[!data$do_label][1:(nlabels - sum(data$do_label))] <- TRUE
+  }
+  
+  data <- rbind(data, tmp)
+  
+  data$label[!data$do_label] <- ""
+  data$do_label[data$label == ""] <- FALSE
+  data$do_label[data$class == "not signif."] <- FALSE
+  
+  
+  color <- rlang::enquo(color)
+  if (rlang::quo_is_null(color)) {
+    color <- rlang::sym("class")
+    colorvals <- c(up = color_up, down = color_down, `not signif.` = color_nonsig)
+  }
+  else {
+    col_levels <- unique(data[[rlang::as_name(color)]])
+    colorvals <- setNames(scales::muted(rainbow(length(col_levels))), 
+                          col_levels)
+  }
+  sigdata <- subset(data, class != "not signif.")
+  xylimits <- list(xlim = getLimits(sigdata$xtmp, clip = clip, 
+                                    expand = expand[1]), ylim = getLimits(sigdata$ytmp, clip = clip, 
+                                                                          expand = expand[2], negative = FALSE))
+  if (symlim == TRUE) {
+    xylimits$xlim <- c(min = -max(abs(xylimits$xlim)), max = max(abs(xylimits$xlim)))
+  }
+  data$xorg <- data$x
+  data$yorg <- data$y
+  if (!is.null(xlim)) 
+    xylimits$xlim <- setNames(xlim, c("min", "max"))
+  if (!is.null(ylim)) 
+    xylimits$ylim <- setNames(ylim, c("min", "max"))
+  xclip_min <- any(naf(data$xorg < xylimits$xlim["min"]))
+  xclip_max <- any(naf(data$xorg > xylimits$xlim["max"]))
+  xbreaks <- (scales::pretty_breaks(n = nbreaks_x))(xylimits$xlim, 
+                                                    n = nbreaks_x)
+  if (clip & xclip_min) {
+    xylimits$xlim["min"] <- min(xbreaks)
+    xclip_min <- any(data$xorg < xylimits$xlim["min"])
+  }
+  if (clip & xclip_max) {
+    xylimits$xlim["max"] <- max(xbreaks)
+    xclip_max <- any(data$xorg > xylimits$xlim["max"])
+  }
+  xylimits$xlim <- xylimits$xlim + c(-diff(xylimits$xlim), 
+                                     diff(xylimits$xlim)) * c(!xclip_min, !xclip_max) * 0.02
+  names(xbreaks) <- as.character(xbreaks)
+  if (xclip_min) {
+    names(xbreaks)[1] <- paste0("<", xbreaks[1])
+  }
+  if (xclip_max) {
+    names(xbreaks)[length(xbreaks)] <- paste0(">", xbreaks[length(xbreaks)])
+  }
+  yclip_min <- any(naf(data$yorg < xylimits$ylim["min"]))
+  yclip_max <- any(naf(data$yorg > xylimits$ylim["max"]))
+  ybreaks <- (scales::pretty_breaks(n = nbreaks_y))(xylimits$ylim, 
+                                                    n = nbreaks_y)
+  if (clip & yclip_min) {
+    xylimits$ylim["min"] <- min(ybreaks)
+    yclip_min <- any(data$xorg < xylimits$ylim["min"])
+  }
+  if (clip & yclip_max) {
+    xylimits$ylim["max"] <- max(ybreaks)
+    yclip_max <- any(data$xorg > xylimits$ylim["max"])
+  }
+  xylimits$ylim <- xylimits$ylim + c(-diff(xylimits$ylim), 
+                                     diff(xylimits$ylim)) * c(!yclip_min & !at_zero, !yclip_max) * 
+    c(0.01, 0.05)
+  names(ybreaks) <- as.character(ybreaks)
+  if (yclip_min) {
+    names(ybreaks)[1] <- paste0("<", ybreaks[1])
+  }
+  if (yclip_max) {
+    names(ybreaks)[length(ybreaks)] <- paste0(">", ybreaks[length(ybreaks)])
+  }
+  data$x[data$x < xylimits$xlim["min"]] <- xylimits$xlim["min"]
+  data$x[data$x > xylimits$xlim["max"]] <- xylimits$xlim["max"]
+  data$y[data$y < xylimits$ylim["min"]] <- xylimits$ylim["min"]
+  data$y[data$y > xylimits$ylim["max"]] <- xylimits$ylim["max"]
+  data <- data[order(data$score, decreasing = FALSE), ]
+  
+  
+  
+  gg <- data %>% ggplot2::ggplot(ggplot2::aes(x = x, y = y, label = label, color = !!color, fill = !!color, ...))
+  
+  gg %<>% +ggplot2::coord_cartesian(clip = "off")
+  gg %<>% +ggplot2::theme_bw(base_size = 20)
+  gg %<>% +ggplot2::theme(text = ggplot2::element_text(color = "black", size = lab_size),
+                          plot.background = ggplot2::element_blank(),
+                          panel.background = ggplot2::element_blank(),
+                          rect = ggplot2::element_rect(color = "black", size = lwd), line = ggplot2::element_line(size = lwd), 
+                          legend.text = ggplot2::element_text(color = "black", size = ifelse(is.na(leg_size), 3, leg_size)),
+                          legend.title = ggplot2::element_text(color = "black", size = ifelse(is.na(leg_size), 3, leg_size)),
+                          legend.position = ifelse(is.na(leg_size), "none", "right"),
+                          panel.grid.minor = ggplot2::element_blank(), 
+                          panel.grid.major = ggplot2::element_line(size = lwd, color = rgb(0.9, 0.9, 0.9)),
+                          panel.border = ggplot2::element_rect(colour = "black", fill = NA, size = lwd),
+                          strip.background = ggplot2::element_blank(), 
+                          strip.text = ggplot2::element_text(color = "black", size = title_size), 
+                          axis.ticks = ggplot2::element_line(color = "black", size = lwd),
+                          axis.line = ggplot2::element_blank(), plot.margin = ggplot2::unit(c(1,1, 1, 1), "cm"),
+                          plot.title = ggplot2::element_text(size = title_size, hjust = 0.5, lineheight = 1.5),
+                          axis.title = ggplot2::element_text(size = axis_size, face = "bold"),
+                          axis.text = ggplot2::element_text(size = axis_title_size, color = "black"))
+  
+  if (!is.null(ptres)) {
+    gg %<>% +ggplot2::geom_hline(yintercept = -log10(ptres), 
+                                 linetype = "dashed", color = rgb(0.3, 0.3, 0.3))
+  }
+  if (scale_size == FALSE) {
+    gg %<>% +ggplot2::geom_point(size = point_size, shape = shape, stroke = NA)
+  }
+  else {
+    gg %<>% +ggplot2::geom_point(aes(size = score), shape = shape, stroke = NA)
+    gg %<>% +ggplot2::scale_size_continuous(range = c(point_size/5, 
+                                                      point_size * 2), guide = "none")
+  }
+  gg %<>% +ggplot2::scale_color_manual(values = alpha(colorvals, 0.8))
+  
+  gg %<>% +ggplot2::labs(title = title, y = paste0("-log10 ", 
+                                                   rlang::as_name(y)), x = rlang::as_name(x), size = "none")
+  gg %<>% +ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = c(0, 
+                                                                            0)), limits = xylimits$xlim, breaks = xbreaks, labels = names(xbreaks))
+  gg %<>% +ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = c(0, 
+                                                                            0)), limits = xylimits$ylim, breaks = ybreaks, labels = names(ybreaks))
+  if (is.null(attract)) attract <- sqrt(repel)
+  
+  gg %<>% +ggrepel::geom_text_repel(data = subset(data, do_label == TRUE),
+                                    fontface = labface,
+                                    size = lab_size/ggplot2:::.pt, seed = seed,
+                                    xlim = xylimits$xlim - c(-diff(xylimits$xlim), diff(xylimits$xlim)) * 0.18, 
+                                    ylim = xylimits$ylim - c(-diff(xylimits$ylim) * 0.3, diff(xylimits$ylim) * 0.02),
+                                    force = repel, force_pull = attract, 
+                                    max.overlaps = max_overlaps, point.padding = 0.35, box.padding = box.padding, 
+                                    max.time = 30, max.iter = 10^6, min.segment.length = 0, 
+                                    vjust = 0, color = rgb(0, 0, 0), segment.alpha = 0.6)
+  return(gg)
+}
+
+
+getLimits <- function (x, clip = TRUE, expand = 1, negative = TRUE){
+  x <- x[!is.na(x)]
+  x <- x + x * expand
+  if (clip == TRUE) {
+    h <- hist(x, plot = FALSE, breaks = 30)
+    xd <- h$counts > 3
+    xmin <- h$breaks[which(xd)[1]]
+    xmax <- rev(h$breaks)[which(rev(xd))[1]]
+  }
+  else {
+    xmin <- NA
+    xmax <- NA
+  }
+  if (is.na(xmax)) 
+    xmax <- max(x) %>% roundup(., roundup(-log10(abs(.))))
+  if (is.na(xmin)) 
+    xmin <- min(x) %>% rounddown(., roundup(-log10(abs(.))))
+  if (is.na(xmin)) {
+    xmin <- -0.1 * xmax
+  }
+  if (is.na(xmax)) {
+    xmax <- -0.1 * xmin
+  }
+  if (is.na(xmax) & is.na(xmin)) {
+    xmin <- -1
+    xmax <- 1
+  }
+  res <- c(min = xmin, max = xmax)
+  if (negative == FALSE) 
+    res[res < 0] <- 0
+  res
+}
+
+

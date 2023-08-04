@@ -1,0 +1,50 @@
+---
+title: "05-RNA-Exhaustion-Public"
+author: "Alexander Kirchmair"
+params:
+  data:    ../data/public
+---
+
+```{r setup, include=FALSE}
+library(GEOquery)
+library(DESeq2)
+library(datamisc)
+
+dir.create(params$data, showWarnings = FALSE)
+
+```
+
+
+## Download data
+```{r}
+geo <- getGEO("GSE210534", GSEMatrix = FALSE, destdir = params$data)
+geosupp <- getGEOSuppFiles("GSE210534", baseDir = params$data)
+gunzip(rownames(geosupp))
+
+```
+
+
+## Differential expression analysis
+```{r}
+data <- readRDS(fp(params$data, "GSE210534/GSE210534_ensdb_105_dge_list_final.rds"))
+data$gene_counts <- collapse(data$counts[data$genes$SYMBOL != "",], ids = data$genes$SYMBOL[data$genes$SYMBOL != ""], average_by = sum)
+
+data$contrasts <- list(TeffvsTrest = c("SampleGroup", "Teff", "Trest"),
+                       TexvsTrest = c("SampleGroup", "Tex", "Trest"),
+                       TtumorvsTrest = c("SampleGroup", "Ttumor", "Trest"),
+                       TexvsTtumor = c("SampleGroup", "Tex", "Ttumor"),
+                       TexvsTeff = c("SampleGroup", "Tex", "Teff"))
+
+data$DE <- runDESeq2(as.matrix(round(data$gene_counts)),
+                     ncores = 1,
+                     design = data$samples,
+                     formula = ~ SampleGroup + Donor,
+                     contrasts = data$contrasts)
+
+```
+
+
+```{r}
+saveRDS(data, "../data/GSE210534_data.rds")
+```
+

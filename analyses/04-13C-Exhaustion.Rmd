@@ -1,0 +1,134 @@
+---
+title: "C13-Exhaustion"
+author: "Alexander Kirchmair"
+params:
+  results:    ../results/metabolomics
+---
+
+
+```{r setup, include=FALSE}
+
+library(c13ms)
+library(datamisc)
+library(dplyr)
+library(openxlsx)
+
+dir.create("../data/metabolomics", showWarnings = FALSE)
+dir.create(params$results, showWarnings = FALSE)
+
+```
+
+
+## Prepare data and metadata
+```{r}
+design <- read.xlsx("../data/metabolomics/13C_EXH_samplesheet.xlsx")
+design$name <- with(design, paste(Batch, Sampletype, Celltype, Donor, Tracer, sep = "_"))
+design$Donor <- factor(as.character(design$Donor), ordered = TRUE, levels = c("1", "2", "3"))
+design$MioCells <- design$Cellnumber/10^6
+
+intensities <- read.xlsx(("../data/metabolomics/13C_EXH_data.xlsx"), sheet = "intensities", rowNames = TRUE)
+intensities <- intensities[,design$Sample]
+rownames(design) <- design$name
+colnames(intensities) <- design$name
+
+intensities$metabolite <- rownames(intensities) |> strsplit(split = "_m") |> sapply(FUN = "[", 1)
+intensities$label <- rownames(intensities) |> strsplit(split = "_m") |> sapply(FUN = "[", 2)
+intensities$label <- paste0("m", intensities$label)
+
+metabolites <- read.xlsx("../data/metabolomics/13C_EXH_data.xlsx", sheet = "metabolites")
+rownames(metabolites) <- metabolites$ID
+
+arrange(design, Celltype, Sampletype, Donor) |>
+  ggdesign(columns = c(Celltype, Sampletype, Tracer, Donor, Batch), label = TRUE) |>
+  saveplot(file = fp(params$results, "exp_design_exh"))
+
+C13exh <- makeTracerExperiment(data = intensities[,c("metabolite", "label", design$name)],
+                       colData = design,
+                       metData = metabolites)
+
+C13exh <- subset(C13exh, Sample != "MCF000187_GL01" & Batch != "A")# exclude based on QC
+
+```
+
+
+## Preprocessing
+
+Preprocessing (data have already been filtered)
+```{r}
+C13exh@qcAssays$zero <- ifelse(C13exh@isoAssays$raw == 0, 0, Inf)
+C13exh %<>% impute(split_by = ~ Celltype + Sampletype, assay = "raw", na = NULL, nan = 0)
+C13exh %<>% correctIso(tracer = "C", assay =  "imp", tracer_purity = 0.99, mode = "negative", tol_error = 0.15, highres = TRUE)
+```
+
+
+Normalization
+```{r }
+
+## Cells
+C13exhcells <- subset(C13exh, Sampletype == "cells")
+C13exhcells %<>% normalize(method = ~ IS + MioCells + LEVEL + HKM, ISmet = "myr_d27_m0", assay = "corr")
+
+## Medium
+C13exhmedium <- subset(C13exh, Sampletype == "medium")
+C13exhmedium %<>% normalize(method = ~ IS + LEVEL + HKM, ISmet = "myr_d27_m0", assay = "corr")
+
+## Combine again
+C13exh <- C13exhcells + C13exhmedium
+
+```
+
+
+Labelling
+```{r}
+
+C13exh_cells <- subset.TracerExperiment(C13exh, Sampletype == "cells")
+C13exh_cells <- sumMets(C13exh_cells, assay = "norm", na_iso.rm = FALSE, qc_LOQ = "zero", thres_LOQ = 1, split_by = ~ Celltype, exclude = "myr_d27",
+                        max_nafrac_per_group = 1,
+                        min_rep_per_group = 2,
+                        max_nafrac_per_met = 0.8,
+                        min_groupfrac_per_iso = 0.5)
+
+C13exh_medium <- subset.TracerExperiment(C13exh, Sampletype == "medium")
+C13exh_medium <- sumMets(C13exh_medium, assay = "norm", na_iso.rm = FALSE, qc_LOQ = "zero", thres_LOQ = 1, split_by = ~ Celltype,
+                        max_nafrac_per_group = 1,
+                        min_rep_per_group = 2,
+                        max_nafrac_per_met = 0.8,
+                        min_groupfrac_per_iso = 0.5)
+
+C13exh <- C13exh_cells + C13exh_medium
+C13exh@metAssays$norm <- cjoin(C13exh_cells@metAssays$norm, C13exh_medium@metAssays$norm)[,rownames(C13exh@colData)]
+
+C13exh <- MID(C13exh)
+C13exh <- isoEnrichment(C13exh, na.rm = TRUE)
+```
+
+
+Clean data
+```{r}
+C13exh <- clean(C13exh, max_nafrac_per_group = 1, min_rep_per_group = 2, qc_LOQ = "zero", thres_LOQ = 1, split_by = ~ Sampletype, soft = TRUE)
+C13exh %<>% clean(assay = "mid", new_assay = "mid_clean",
+                  max_nafrac_per_group = 1, min_rep_per_group = 2, qc_LOQ = "zero", thres_LOQ = 1, split_by = ~ Sampletype, soft = TRUE)
+
+```
+
+
+# Differential abundance testing
+```{r}
+
+colData(C13exh)$Celltype <- factor(colData(C13exh)$Celltype)
+
+contrasts <- list("TEXvsTEFF_cells" = list("Celltype" = c("TEX", "TEFF"), "Sampletype" = "cells", "Tracer" = "13C"),
+                  "TEXvsTEFF_medium" = list("Celltype" = c("TEX", "TEFF"), "Sampletype" = "medium", "Tracer" = "13C"))
+
+C13exh %<>% diffTest(contrasts = contrasts, formula = ~ Celltype, random = ~ 1 | Donor, type = "met", method = "lmm", assay = "norm")
+C13exh %<>% diffTest(contrasts = contrasts, formula = ~ Celltype, random = ~ 1 | Donor, type = "iso", method = "lmm", assay = "norm")
+
+C13exh %<>% diffTest(contrasts = contrasts, formula = ~ Celltype + (1|Donor), type = "met", method = "beta", assay = "frac")
+C13exh %<>% diffTest(contrasts = contrasts, formula = ~ Celltype + (1|Donor), type = "iso", method = "beta", assay = "mid_clean")
+```
+
+
+```{r}
+saveRDS(C13exh, "../data/C13exh.rds")
+```
+

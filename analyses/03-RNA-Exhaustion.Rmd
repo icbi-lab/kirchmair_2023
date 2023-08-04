@@ -1,0 +1,87 @@
+---
+title: "RNA-Exhaustion"
+author: "Alexander Kirchmair"
+params:
+  use_geo:    TRUE
+---
+
+```{r setup, include=FALSE}
+
+library(datamisc)
+library(DESeq2)
+library(ggplot2)
+library(org.Hs.eg.db)
+library(dplyr)
+library(GEOquery)
+library(clusterProfiler)
+
+dir.create("../data/rnaseq", showWarnings = FALSE)
+
+```
+
+
+## Prepare data and metadata
+```{r}
+RNAexh <- list()
+
+RNAexh$design <- getGEO("GSE234100")[[1]] |>
+  pData() |>
+  mutate(Celltype = sub("\\d.*", "", title)) |>
+  rename(Donor = 'donor:ch1', Batch = 'batch:ch1', Treatment = 'treatment:ch1', Accession = 'geo_accession') |> 
+  col2rownames(title) |> 
+  select(Celltype, Donor, Batch, Treatment, Accession)
+
+RNAexh$design$Celltype <- relevel(factor(RNAexh$design$Celltype), ref = "TEFF")
+RNAexh$design$Donor <- relevel(factor(RNAexh$design$Donor), ref = "1")
+
+```
+
+
+Read raw counts (either from GEO or from the nf-core preprocessing)
+```{r}
+
+if (dir.exists("02_NF_results") & params$use_geo != TRUE){
+  # Import raw counts files
+  nf_results <- nf_importTX("../data/rnaseq/EXH/02_NF_results")
+  counts <- nf_results$counts[,rownames(RNAexh$design)]
+  
+} else {
+  # Download from GEO
+  RNAexh$countsfile <- getGEOSuppFiles("GSE234100", makeDirectory = FALSE, baseDir = "../data/rnaseq/EXH") |> rownames()
+  RNAexh$counts <- read.delim(RNAexh$countsfile, row.names = 1) |> data.matrix()
+}
+
+RNAexh$biotypes <- getBiomaRt(rownames(RNAexh$counts))
+
+```
+
+
+## Differential expression analysis
+```{r}
+RNAexh$formula <- ~ Celltype + Donor + Batch
+RNAexh$contrasts <- list(TEXvsTEFF = c("Celltype", "TEX", "TEFF"))
+RNAexh$deseq2 <- runDESeq2(RNAexh$counts[,rownames(RNAexh$design)], design = RNAexh$design, formula = RNAexh$formula, contrasts = RNAexh$contrasts)
+```
+
+
+## Gene set enrichment analysis
+```{r}
+genesets <- read.delim("../tables/genesets.tsv.gz")
+RNAexh$gsea <- RNAexh$deseq2$results %L>% runGSEA(data = ., genesets = genesets)
+```
+
+
+```{r}
+saveRDS(RNAexh, "../data/RNAexh.rds")
+```
+
+
+
+
+
+
+
+
+
+
+

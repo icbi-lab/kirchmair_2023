@@ -1,0 +1,280 @@
+---
+title: "C13-Differentiation"
+author: "Alexander Kirchmair"
+params:
+  results:    ../results/metabolomics
+---
+
+```{r setup, include=FALSE}
+
+library(c13ms)
+library(datamisc)
+library(dplyr)
+library(openxlsx)
+library(ggplot2)
+
+dir.create("../data/metabolomics", showWarnings = FALSE)
+dir.create(params$results, showWarnings = FALSE)
+
+```
+
+
+## Prepare data and metadata
+```{r}
+design <- read.xlsx("../data/metabolomics/13C_MEM_samplesheet.xlsx")
+design$name <- with(design, paste(Batch, Sampletype, Celltype, Tracer, sep = "_"))
+design[design$Sampletype == "blank",]$name <- paste0(design[design$Sampletype == "blank",]$name, "_", 1:3)
+
+intensities <- read.xlsx("../data/metabolomics/13C_MEM_data.xlsx", sheet = "intensities", rowNames = TRUE)
+intensities <- intensities[,design$Sample]
+rownames(design) <- design$name
+colnames(intensities) <- design$name
+
+intensities$metabolite <- rownames(intensities) %>% strsplit(split = "_m") %>% sapply(FUN = "[", 1)
+intensities$label <- rownames(intensities) %>% strsplit(split = "_m") %>% sapply(FUN = "[", 2)
+intensities$label <- paste0("m", intensities$label)
+
+metabolites <- read.xlsx("../data/metabolomics/13C_MEM_data.xlsx", sheet = "metabolites")
+rownames(metabolites) <- metabolites$ID
+
+design$Celltype <- factor(design$Celltype, ordered = TRUE, levels = c("TN", "TSCM", "TCM", "TEM"))
+design$Donor <- factor(as.character(design$Donor), ordered = TRUE, levels = c("1", "2", "3"))
+design$MioCells <- design$Cellnumber / 10^6
+
+colors <- getColors(design)
+colors <- c(colors, getColors(intensities[,c("metabolite", "label")]))
+colors$Sampletype <- c("cells" = "#13d68b", "medium" = "#e3a944")
+colors$Tracer <- c("13C" = "#ff6a57", "12C" = "#c3a9d4")
+colors$Celltype <- c("TN" = rgb(59,213,247, maxColorValue = 255),
+                     "TSCM" = rgb(64,246,58, maxColorValue = 255),
+                     "TCM" = rgb(245,190,57, maxColorValue = 255),
+                     "TEM" = rgb(245,87,50, maxColorValue = 255), 
+                     "nocells" = rgb(0.5, 0.5, 0.5))
+colors$Donor <- c("1" = "#c3a9d4", "2" = "#7e6dc9", "3" = "#84a1e8")
+colors$Batch <- c("A" = "#c3a9d4", "B" = "#7e6dc9", "C" = "#84a1e8")
+
+arrange(droplevels(subset(design, Sampletype != "blank")), Celltype, Sampletype, Donor) %>%
+  ggdesign(columns = c(Celltype, Sampletype, Tracer, Donor, Batch), label = TRUE, colors = colors) %>%
+  ggpng(c(params$results, "exp_design"))
+
+C13list <- c(C13donor1 = "A", C13donor2 = "B", C13donor3 = "C") %L>% function(batch){
+  makeTracerExperiment(data = intensities[,c("metabolite", "label", subset(design, Batch == batch & Sampletype != "blank")$name)],
+                       colData = subset(design, Batch == batch & design$Sampletype != "blank"),
+                       metData = metabolites,
+                       QC = list("blanks" = intensities[, subset(design, Batch == batch & Sampletype == "blank")$name])) }
+
+```
+
+
+## Preprocessing
+
+Parameters
+```{r}
+na_met <- 0.5 # max_nafrac_per_met
+na_group <- NULL # max_nafrac_per_group
+rep <- 2 # min_rep_per_group
+split_by = ~ Celltype + Sampletype # split_by
+iso_groups <- 0.3 # min_groupfrac_per_iso
+LOQ <- 2
+```
+
+The raw data contain missing values (not measured at all) and values that are similar in blank runs.
+- First we estimate LOD values from blanks (separately for each batch because they are different)
+- Measurement values below LOD of the respective metabolite are set to NA (probably there but not accurately quantified)
+- Measurement values below blank mean of the respective metabolite are set to NaN (probably not there, can be treated as 0)
+
+Preprocessing
+```{r}
+
+# Estimate LODs from blanks (except for the internal standard, which is also present in blanks)
+C13list %<L>% estimateLOQs(exclude = "myr_d27_m0", sds = 1)
+
+# LOD cleaning
+C13list %<L>% preprocessLOQs(exclude = "myr_d27_m0", thres_LOQ = LOQ)
+
+# After LOD processing, we can combine the batches and remove metabolites with too many NA/NaN values.
+C13mem <- with(C13list, C13donor1 + C13donor2 + C13donor3)
+
+# Plots
+loqdata <- assay(C13mem, "loq", type = "qc")
+loqdata %>% cxheatmap(rowdf = isoData(C13mem)[,c("metabolite", "label")],
+                      rowcex = 0.4, fontsize = 5, border = TRUE, column_split = C13mem$Sampletype,
+                      cluster_cols = FALSE,
+                      colors = colors,
+                      title = "LOQ",
+                      heatpal = circlize::colorRamp2(breaks = c(-3,0,0.01,1,30), colors = c("red4", "orangered3","dodgerblue", "white", "limegreen")),
+                      cluster_rows = FALSE) %>%
+            saveplot(fp(params$results, "LOQ_differentiation"), width = 1500, height = 8000)
+
+```
+
+
+Imputation
+```{r}
+
+C13mem@isoAssays$lod[is.na(C13mem@isoAssays$raw)] <- NA # here we want to keep the original NAs (i.e., what was not below LOD/LOQ, but definitely missing)
+C13mem %<>% impute(na = "linsubLODs", nan = 0)
+
+```
+
+
+Natural abundance correction
+```{r}
+
+C13mem %<>% correctIso(tracer = "C", assay =  "imp", tracer_purity = 0.99, mode = "negative", tol_error = 0.1, highres = TRUE)
+
+```
+
+
+Normalization
+```{r}
+
+## Cells
+C13mem_cells <- subset.TracerExperiment(C13mem, Sampletype == "cells")
+C13mem_cells %<>% normalize(method = ~ IS + MioCells + LEVEL + HKM, ISmet = "myr_d27_m0", assay = "corr", na.rm = TRUE)
+
+## Medium - not meaningful to normalize to cell number (only for exchanges)
+C13mem_medium <- subset.TracerExperiment(C13mem, Sampletype == "medium")
+C13mem_medium %<>% normalize(method = ~ IS  + LEVEL + HKM, ISmet = "myr_d27_m0", assay = "corr")
+
+## Combine again
+C13mem <- C13mem_cells + C13mem_medium
+
+
+```
+
+
+Clean data (to limit use of imputed/below-LOQ-values, set thres_LOQ with soft cleaning)
+```{r}
+C13mem %<>% subset.TracerExperiment(Tracer == "13C")
+
+## Summed metabolite abundances (cells)
+C13mem_cells <- subset.TracerExperiment(C13mem, Sampletype == "cells")
+C13mem_cells <- sumMets(C13mem_cells,
+                        assay = "norm",
+                        na_iso.rm = FALSE,
+                        na.rm = TRUE,
+                        sum_qc = TRUE,
+                        thres_LOQ = LOQ,
+                        max_nafrac_per_met = 0.6, # lower for sumMets
+                        max_nafrac_per_group = 0.5,
+                        min_rep_per_group = 1, # non-NA samples per e.g. TN
+                        min_groupfrac_per_iso = 0.75, # non-all-NA groups (frac. of TN, TSCM, TCM, TEM) per isotopologues
+                        split_by = ~ 1)
+
+## Summed metabolite abundances (medium)
+C13mem_medium <- subset.TracerExperiment(C13mem, Sampletype == "medium")
+C13mem_medium <- sumMets(C13mem_medium, assay = "norm",
+                         na_iso.rm = TRUE,
+                         na.rm = TRUE,
+                         sum_qc = TRUE,
+                         thres_LOQ = LOQ,
+                         max_nafrac_per_met = 0.6, # lower for sumMets
+                         max_nafrac_per_group = 0.5, # na_group,
+                         min_rep_per_group = 1, # non-NA samples per e.g. TN
+                         min_groupfrac_per_iso = 0.75, # non-all-NA groups (frac. of TN, TSCM, TCM, TEM) per isotopologues
+                         split_by = ~ 1)
+
+## Combine again
+C13mem <- C13mem_cells + C13mem_medium
+C13mem@metAssays$norm <- cjoin(C13mem_cells@metAssays$norm, C13mem_medium@metAssays$norm)[,rownames(C13mem@colData)]
+
+
+# isotopologues
+C13mem %<>% clean(thres_LOQ = LOQ, max_nafrac_per_met = 0.9, max_nafrac_per_group = na_group, min_rep_per_group = 1, split_by = ~ Sampletype + Celltype, soft = TRUE)
+C13mem %<>% clean(assay = "clean", thres_LOQ = LOQ, max_nafrac_per_met = 0.9, max_nafrac_per_group = 0.5, min_rep_per_group = 0, split_by = ~ Sampletype, soft = TRUE)
+
+```
+
+
+Calculate MID and fractional enrichment
+```{r}
+
+C13mem <- MID(C13mem, assay = "clean_sum")
+mid <- C13mem@isoAssays$mid
+isos <- mid[rowSums(!is.na(mid)) > 0,] |> rownames()
+setdiff(rownames(isoData(C13mem)), isos) |> sort()
+
+C13mem %<>% clean(assay = "mid", new_assay = "mid_clean",
+                  thres_LOQ = LOQ,
+                  max_nafrac_per_met = 0.9, 
+                  max_nafrac_per_group = na_group,
+                  min_rep_per_group = 1,
+                  split_by = ~ Sampletype + Celltype,
+                  soft = TRUE)
+C13mem %<>% clean(assay = "mid_clean", new_assay = "mid_clean", thres_LOQ = LOQ, max_nafrac_per_met = 0.9, max_nafrac_per_group = 0.5, min_rep_per_group = 0, split_by = ~ Sampletype, soft = TRUE)
+
+## Fractional enrichment
+C13mem <- isoEnrichment(C13mem, na.rm = TRUE, assay = "mid")
+C13mem <- isoEnrichment(C13mem, na.rm = TRUE, assay = "mid_clean", new_assay = "frac_clean") # is it ok to use mid_clean?
+(C13mem@metAssays$frac == C13mem@metAssays$frac_clean) |> mean()
+
+C13mem@metAssays$frac[is.na(C13mem@metAssays$norm)] <- NA
+C13mem@metAssays$frac <- data.frame(C13mem@metAssays$frac)
+
+```
+
+
+QC/heatmap plots
+```{r}
+C13mem %>% subset(Sampletype == "cells") %>%
+  assay("norm", type = "met") %>%
+  matScale(rows = TRUE) %>%
+  subset(., !is.na(rowSums(.))) %>%
+  cxheatmap(title = "z-norm", cluster_rows = TRUE, cluster_cols = TRUE, rowcex = 0.8, colcex = 0.8, heatpal = circlize::colorRamp2(c(-2,0,2), c("#0800a8", "#f7f7f7", "#ffd000"))) %>%
+  saveplot(file = fp(params$results, "heatmap_cells.png"), width = 2000, height = 2800)
+
+C13mem %>% subset(Sampletype == "medium") %>%
+  assay("norm", type = "met") %>%
+  matScale(rows = TRUE) %>%
+  subset(., !is.na(rowSums(.))) %>%
+  cxheatmap(title = "z-norm", cluster_rows = TRUE, cluster_cols = TRUE, rowcex = 0.8, colcex = 0.8, heatpal = circlize::colorRamp2(c(-2,0,2), c("#0800a8", "#f7f7f7", "#ffd000"))) %>%
+  saveplot(file = fp(params$results, "heatmap_medium.png"), width = 2000, height = 2800)
+
+C13mem %>% subset(Sampletype == "cells") %>%
+  assay("norm", type = "met") %>%
+  ggpca(., colData(C13mem), aes(color = Celltype, shape = Donor), colors = colors, na = "omit") %>%
+  saveplot(file = fp(params$results, "pca_cells.png"), dpi = 400, width = 2200, height = 1800)
+
+C13mem %>% subset(Sampletype == "medium") %>%
+  assay("norm", type = "met") %>%
+  ggpca(., colData(C13mem), aes(color = Celltype, shape = Donor), colors = colors, na = "omit") %>%
+  saveplot(file = fp(params$results, "pca_medium.png"), dpi = 400, width = 2200, height = 1800)
+
+```
+
+
+# Differential abundance testing
+```{r}
+design <- C13mem@colData
+design$Celltype <- relevel(factor(design$Celltype, ordered = FALSE), ref = "TN")
+design$Donor <- relevel(factor(design$Donor, ordered = FALSE), ref = "1")
+C13mem@colData <- design[rownames(C13mem@colData),]
+
+contrasts <- list("TSCMvsTN_cells" = list("Celltype" = c("TSCM", "TN"), "Sampletype" = "cells", "Tracer" = "13C"),
+                  "TCMvsTSCM_cells" = list("Celltype" = c("TCM", "TSCM"), "Sampletype" = "cells", "Tracer" = "13C"),
+                  "TEMvsTCM_cells" = list("Celltype" = c("TEM", "TCM"), "Sampletype" = "cells", "Tracer" = "13C"),
+                  "TSCMvsTN_medium" = list("Celltype" = c("TSCM", "TN"), "Sampletype" = "medium", "Tracer" = "13C"),
+                  "TCMvsTSCM_medium" = list("Celltype" = c("TCM", "TSCM"), "Sampletype" = "medium", "Tracer" = "13C"),
+                  "TEMvsTCM_medium" = list("Celltype" = c("TEM", "TCM"), "Sampletype" = "medium", "Tracer" = "13C")
+                  )
+
+# Isotopologue abundances
+C13mem %<>% diffTest(contrasts = contrasts, formula = ~ Celltype, random = ~ 1 | Donor, type = "iso", method = "lmm", assay = "clean")
+
+# MID
+C13mem %<>% diffTest(contrasts = contrasts, formula = ~ Celltype + (1|Donor), type = "iso", method = "beta", assay = "mid_clean")
+
+# Fractional labelling
+C13mem %<>% diffTest(contrasts = contrasts, formula = ~ Celltype + (1|Donor), type = "met", method = "beta", assay = "frac_clean")
+
+# Metabolite abundances
+C13mem %<>% diffTest(contrasts = contrasts, formula = ~ Celltype, random = ~ 1 | Donor, type = "met", method = "lmm", assay = "norm")
+
+```
+
+
+```{r}
+saveRDS(C13mem, "../data/C13mem.rds")
+```
+

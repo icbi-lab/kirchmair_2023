@@ -1,0 +1,271 @@
+---
+title: "06-RNA-Mitochondria"
+author: "Alexander Kirchmair"
+params:
+  data:   ../data/public
+---
+
+```{r setup, include=FALSE}
+library(biomaRt)
+library(datamisc)
+library(ggplot2)
+library(dplyr)
+library(GEOquery)
+library(limma)
+library(openxlsx)
+library(TCGAbiolinks)
+
+dir.create(params$data, showWarnings = FALSE)
+if (!exists("mitodata"))  mitodata <- list()
+if (!exists("mitogenes"))  mitogenes <- list()
+
+```
+
+
+# Mitochondria-related genes
+```{r}
+
+# MitoCarta
+download.file("ftp://ftp.broadinstitute.org/distribution/metabolic/papers/Pagliarini/MitoCarta3.0/Human.MitoCarta3.0.xls",
+              file.path(params$data, "Human.MitoCarta3.0.xls"))
+mitogenes$mitocarta <- readxl::read_xls(file.path(params$data, "Human.MitoCarta3.0.xls"), sheet = 2) %>% as.data.frame()
+
+
+# Biomart chromosome genes
+biomart <- useMart(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+mitogenes$mtgenes <- getBM(attributes = c("chromosome_name", "hgnc_symbol", "ensembl_gene_id", "description", "gene_biotype"),
+                           filters = "chromosome_name", values = "MT", mart = biomart)
+
+# IMPI (Integrated Mitochondrial Proteome Index)
+mitogenes$IMPI <- read.xlsx("https://www.mrc-mbu.cam.ac.uk/files/impi-2021-q4pre-20211001-dist_0.xlsx", sheet = 2)
+
+# Human Protein Atlas
+mitogenes$HPA <- read.delim("https://www.proteinatlas.org/search/subcell_location%3AMitochondria?format=tsv")
+mitogenes$HPA$mito_main <- grepl("Mitochondria", mitogenes$HPA$Subcellular.main.location)
+mitogenes$HPA$mito_only <- mitogenes$HPA$Subcellular.main.location == "Mitochondria"
+  
+# Consensus
+df <- data.frame(row.names = keys(org.Hs.eg.db::org.Hs.eg.db, keytype = "SYMBOL"))
+df$mitocarta <- rownames(df) %in% subset(mitogenes$mitocarta, MitoCarta3.0_SubMitoLocalization %in% c("Matrix", "MIM", "MOM"))$Symbol
+df$HPA <- rownames(df) %in% subset(mitogenes$HPA, Subcellular.location == "Mitochondria")$Gene
+df$IMP <- rownames(df) %in% subset(mitogenes$IMPI, IMPI.SVM.Prediction %in% c("Predicted mitochondrial - High", "Predicted mitochondrial - Medium"))$Symbol
+mitogenes$consensus <- union(rownames(df)[rowMeans(df) > 0.6], mitogenes$mtgenes$hgnc_symbol)
+
+```
+
+```{r}
+saveRDS(mitogenes, file = file.path(params$data, "mitogenes.rds"))
+```
+
+
+# Mitochondrial copy number datasets
+
+Yuan et al., 2020: https://doi.org/10.1038/s41588-019-0557-x
+```{r}
+
+mitodata$Yuan2020 <- list()
+
+# metadata
+download.file("https://dcc.icgc.org/api/v1/download?fn=/PCAWG/transcriptome/metadata/rnaseq.extended.metadata.aliquot_id.V4.tsv.gz",
+              destfile = file.path(params$data, "rnaseq.extended.metadata.aliquot_id.V4.tsv.gz"))
+gunzip(file.path(params$data, "rnaseq.extended.metadata.aliquot_id.V4.tsv.gz"), overwrite = TRUE)
+metadata <- read.delim(file.path(params$data, "rnaseq.extended.metadata.aliquot_id.V4.tsv"))
+
+# mitochondrial copy numbers
+download.file("https://ibl.mdanderson.org/tcma/download/TCMA-CopyNumber.tsv.zip",
+              destfile = file.path(params$data, "TCMA-CopyNumber.tsv.zip"))
+unzip(file.path(params$data, "TCMA-CopyNumber.tsv.zip"), exdir = params$data)
+mitodata$Yuan2020$MCN <- read.delim(file.path(params$data, "TCMA-CopyNumber.tsv"))
+
+# gene expression data
+if (!file.exists(file.path(params$data, "tophat_star_fpkm.v2_aliquot_gl.tsv.gz"))){
+  download.file("https://dcc.icgc.org/api/v1/download?fn=/PCAWG/transcriptome/gene_expression/tophat_star_fpkm.v2_aliquot_gl.tsv.gz",
+              destfile = file.path(params$data, "tophat_star_fpkm.v2_aliquot_gl.tsv.gz"))
+}
+mitodata$Yuan2020$fpkm <- read.delim(file.path(params$data, "tophat_star_fpkm.v2_aliquot_gl.tsv.gz"))
+mitodata$Yuan2020$fpkm <- mitodata$Yuan2020$fpkm[order(rowMedians(as.matrix(mitodata$Yuan2020$fpkm[,-1])), decreasing = TRUE),]
+mitodata$Yuan2020$fpkm$gene <- AnnotationDbi::mapIds(x = org.Hs.eg.db::org.Hs.eg.db, column = "SYMBOL", keytype = "ENSEMBL",
+                                                     keys = sub("\\..*", "", mitodata$Yuan2020$fpkm$feature))
+mitodata$Yuan2020$fpkm <- subset(mitodata$Yuan2020$fpkm, !duplicated(gene) & !is.na(gene))
+rownames(mitodata$Yuan2020$fpkm) <- mitodata$Yuan2020$fpkm$gene
+ix <- match(colnames(mitodata$Yuan2020$fpkm), make.names(metadata$aliquot_id))
+colnames(mitodata$Yuan2020$fpkm) <- metadata$aliquot_id[ix]
+mitodata$Yuan2020$fpkm <- mitodata$Yuan2020$fpkm[,!is.na(ix)]
+
+mitodata$Yuan2020$MCN$ID <- metadata$aliquot_id[match(mitodata$Yuan2020$MCN$sample_id, metadata$submitted_donor_id)]
+mitodata$Yuan2020$MCN <- subset(mitodata$Yuan2020$MCN, !is.na(ID))
+rownames(mitodata$Yuan2020$MCN) <- mitodata$Yuan2020$MCN$ID
+ids <- intersect(mitodata$Yuan2020$MCN$ID, colnames(mitodata$Yuan2020$fpkm))
+
+mitodata$Yuan2020$MCN <- mitodata$Yuan2020$MCN[ids,]
+mitodata$Yuan2020$fpkm <- mitodata$Yuan2020$fpkm[,ids]
+
+# correlations
+cns <- mitodata$Yuan2020$MCN[colnames(mitodata$Yuan2020$fpkm),]$tumor_copy_number
+mitodata$Yuan2020$cor <- apply(log2(mitodata$Yuan2020$fpkm + 1), 1, function(x){
+  cor(x, cns, use = "pairwise.complete.obs")
+})
+
+# adjusted
+mm <- model.matrix(~ cancer_type + tumor_copy_number, mitodata$Yuan2020$MCN)
+fit <- lmFit(log2(mitodata$Yuan2020$fpkm + 1), mm)
+fit <- eBayes(fit, trend = TRUE)
+mitodata$Yuan2020$limma <- topTable(fit, coef = "tumor_copy_number", number = Inf)
+
+mitodata$Yuan2020$median <- data.frame(gene = rownames(mitodata$Yuan2020$fpkm), median = rowMedians(as.matrix(mitodata$Yuan2020$fpkm))) |> arrange(desc(median))
+
+```
+
+
+Reznik et al., 2016: https://doi.org/10.7554/eLife.10769
+```{r}
+
+mitodata$Reznik2016 <- list()
+
+ST1 <- "https://elifesciences.org/download/aHR0cHM6Ly9jZG4uZWxpZmVzY2llbmNlcy5vcmcvYXJ0aWNsZXMvMTA3NjkvZWxpZmUtMTA3Njktc3VwcDEtdjIuemlw/elife-10769-supp1-v2.zip?_hash=PPzcREUMfFsSCCXJL9Ilz6YBG1wqeXIj1aUq5P2l0eI%3D"
+download.file(ST1, destfile = file.path(params$data, "elife-10769-supp1-v2.zip"))
+unzip(file.path(params$data, "elife-10769-supp1-v2.zip"), exdir = params$data)
+mitodata$Reznik2016$MCN <- read.csv(file.path(params$data, "Supplementary_file_1.csv"))
+mitodata$Reznik2016$MCN$ID <- mitodata$Reznik2016$MCN$Sample.ID %>% make.names()
+
+# TCGA data
+if (!file.exists(file.path(params$data, "EBPlusPlusAdjustPANCAN_IlluminaHiSeq_RNASeqV2.geneExp.tsv"))){
+  download.file("http://api.gdc.cancer.gov/data/3586c0da-64d0-4b74-a449-5ff4d9136611", method = "wget", quiet = TRUE,
+              destfile = file.path(params$data, "EBPlusPlusAdjustPANCAN_IlluminaHiSeq_RNASeqV2.geneExp.tsv"))
+}
+TCGA <- read.table(file.path(params$data, "EBPlusPlusAdjustPANCAN_IlluminaHiSeq_RNASeqV2.geneExp.tsv"), header = TRUE)
+TCGA$gene_id <- sub("\\?.*|\\|.*", "", TCGA$gene_id)
+TCGA$gene_id[TCGA$gene_id == ""] <- NA
+TCGA <- TCGA[!is.na(TCGA$gene_id),]
+ix <- which(TCGA$gene_id %in% TCGA$gene_id[duplicated(TCGA$gene_id)])
+TCGA <- TCGA[-ix[2],]
+TCGA <- col2rownames(TCGA, col = gene_id)
+
+ids <- sub("TCGA.", "", colnames(TCGA)) |> substr(1, 7)
+ids_use <- ids %in% mitodata$Reznik2016$MCN$ID
+TCGA <- TCGA[,ids_use]
+
+tmp <- TCGA[1:2,]
+colnames(tmp) <- gsub(".","-",colnames(tmp), fixed = TRUE)
+coldata <- TCGAbiolinks::get_IDs(tmp)
+TCGA <- TCGA[,coldata$condition == "cancer"]
+TCGA[is.na(TCGA)] <- 0
+TCGA[TCGA < 0] <- 0
+colnames(TCGA) <- sub("TCGA.", "", colnames(TCGA)) |> substr(1, 7)
+ids <- intersect(mitodata$Reznik2016$MCN$ID, colnames(TCGA))
+mitodata$Reznik2016$expr <- TCGA[,ids]
+
+mitodata$Reznik2016$MCN <- mitodata$Reznik2016$MCN[match(ids, mitodata$Reznik2016$MCN$ID),]
+rownames(mitodata$Reznik2016$MCN) <- mitodata$Reznik2016$MCN$ID
+
+mitodata$Reznik2016$median <- data.frame(gene = rownames(mitodata$Reznik2016$expr), median = rowMedians(as.matrix(mitodata$Reznik2016$expr))) |>
+  arrange(desc(median))
+
+```
+
+```{r}
+saveRDS(mitodata, file = file.path(params$data, "mitodata.rds"))
+```
+
+
+# Model fitting and validation
+```{r}
+if (!exists("mitodata")) mitodata <- readRDS(fp(params$data, "mitodata.rds"))
+if (!exists("mitogenes")) mitogenes <- readRDS(fp(params$data, "mitogenes.rds"))
+
+RNAmem <- readRDS("../data/RNAmem.rds")
+RNAexh <- readRDS("../data/RNAexh.rds")
+
+mitomodel <- list()
+```
+
+
+Input genes
+```{r}
+# Highly expressed genes:
+genes_high <- intersect(mitodata$Yuan2020$median$gene[1:10000], mitodata$Reznik2016$median$gene[1:10000])
+
+# Genes correlated with mitochondrial abundance:
+genes_cor <- union(names(mitodata$Yuan2020$cor[mitodata$Yuan2020$cor > 0.1]), rownames(subset(mitodata$Yuan2020$limma, logFC > 0))[1:1000])
+
+# Combined:
+genes <- Reduce(f = intersect, list(genes_high, genes_cor, rownames(mitodata$Reznik2016$expr))) # also expressed in the other datasets
+
+# Limit to genes with known mitochondrial functions:
+mitomodel$genes <- genes[genes %in% mitogenes$consensus]
+```
+
+
+Remove batch effects between datasets
+```{r}
+tmp <- cjoin(log2(mitodata$Yuan2020$fpkm + 1), log2(mitodata$Reznik2016$expr + 1), log2(RNAmem$deseq2$normcounts + 1), log2(RNAexh$deseq2$normcounts + 1))
+norm <- normalizeBetweenArrays(tmp, method = "quantile")
+
+x1 <- ncol(mitodata$Yuan2020$fpkm)
+x2 <- ncol(mitodata$Reznik2016$expr)
+x3 <- ncol(RNAmem$deseq2$normcounts)
+x4 <- ncol(RNAexh$deseq2$normcounts)
+
+data1 <- norm[,1:x1]
+data2 <- norm[,(x1+1):(x1+x2)]
+data3 <- norm[,(x1+x2+1):(x1+x2+x3)]
+data4 <- norm[,(x1+x2+x3+1):(x1+x2+x3+x4)]
+```
+
+
+Yuan2020 as training data
+```{r}
+ndata <- data.frame(mitodata$Yuan2020$MCN[,"tumor_copy_number", drop = FALSE], t(data1[mitomodel$genes,]))
+ndata <- ndata[,!is.na(matrixStats::colVars(as.matrix(ndata)))]
+set.seed(123)
+ix_train <- sample(1:nrow(ndata), size = nrow(ndata)*0.8)
+```
+
+
+Linear model
+```{r}
+linmod <- lm(tumor_copy_number ~ ., data = ndata[ix_train,])
+sm <- summary(linmod)
+sel <- rownames(sm$coefficients)[sm$coefficients[,"Pr(>|t|)"] <= 0.1]
+sel <- c("tumor_copy_number", sel[sel %in% colnames(ndata)])
+length(sel[-1])
+
+linmod <- lm(tumor_copy_number ~ ., data = ndata[,sel])
+selmod <- step(linmod, trace = FALSE, steps = 10000)
+summary(selmod)
+
+mitomodel$fit <- selmod
+```
+
+
+Model validation
+```{r}
+# Original data (test)
+mitomodel$test <- predict.lm(selmod, newdata = ndata[-ix_train,])
+cor.test(mitodata$Yuan2020$MCN[rownames(ndata[-ix_train,]),]$tumor_copy_number, mitomodel$test, method = "pearson")
+
+# Original data (all)
+mitomodel$test_all <- predict.lm(selmod, newdata = ndata)
+cor.test(mitodata$Yuan2020$MCN[rownames(ndata),]$tumor_copy_number, mitomodel$test_all, method = "pearson")
+
+# Reznik2016
+mitomodel$pred_Reznik2016 <- predict.lm(selmod, newdata = data.frame(t(data2)))
+cor.test(mitodata$Reznik2016$MCN$Tumor.MTDNA.Copy.Number, mitomodel$pred_Reznik2016[rownames(mitodata$Reznik2016$MCN)], method = "pearson", use = "pairwise.complete.obs")
+```
+
+
+# Prediction
+```{r}
+mitomodel$pred_mem <- predict(linmod, newdata = data.frame(t(data3)))
+data.frame(RNAmem$deseq2$design, mitomodel$pred_mem) |> mutate(Celltype = factor(Celltype, ordered = TRUE, levels = c("TN","TSCM","TCM","TEM"))) |>
+  ggplot(aes(x = Celltype, y = mitomodel$pred_mem)) + geom_point()
+
+mitomodel$pred_exh <- predict(linmod, newdata = data.frame(t(data4)))
+data.frame(RNAexh$deseq2$design, mitomodel$pred_exh) |> ggplot(aes(x = Celltype, y = mitomodel$pred_exh)) + geom_point()
+```
+
+
+```{r}
+saveRDS(mitomodel, "../data/mitomodel.rds")
+```
+

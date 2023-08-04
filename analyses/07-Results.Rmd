@@ -1,0 +1,775 @@
+---
+title: "Results"
+author: "Alexander Kirchmair"
+params:
+  data:    ../data
+  figures:  ../results
+  tables:  ../results
+  format:   pdf
+---
+
+```{r setup, include=FALSE}
+
+library(ggplot2)
+library(c13ms)
+library(patchwork)
+library(datamisc)
+library(dplyr)
+library(openxlsx)
+library(ComplexHeatmap)
+library(grid)
+library(cowplot)
+
+dir.create(params$figures, showWarnings = FALSE)
+dir.create(params$tables, showWarnings = FALSE)
+
+source("../lib/R-functions.R")
+
+```
+
+
+Plotting parameters
+```{r}
+
+theme_fig <- theme(text = element_text(),
+                   plot.margin = margin(l = 10, r = 10, t = 10, b = 5),
+                   axis.title.x = element_text(size = 18, face = "plain"),
+                   axis.title.y = element_text(size = 18, face = "plain"),
+                   plot.tag = element_text(size = 18, face = "bold"))
+
+gg_empty <- ggplot() + theme(panel.background = element_blank()) + theme_fig
+
+
+colors <- list()
+colors$celltype <- c(TN = "#0DA5CA", TSCM = "#25DA3A", TCM = "#CC9511", TEM ="#CA3613", TEFF = "#CF151C", TEX = "#C2CB21")
+colors$gene$up <- "#b52a2a"
+colors$gene$down <- "#41569c"
+colors$gene$na <- "#4d4d4d"
+
+
+full_width = 2100*2
+full_height = 2970*2
+
+panel_title_size <- 16
+volc_label_size <- 10
+axis_title_size <- 14
+axis_lab_size <- 12
+volc_rna_points <- 1
+size <- 16
+nlabels <- 6
+lab_size <- 12
+conf_tresh <- 1
+lwd <- 0.5
+max_overlaps <- 20
+r <- 100
+a <- 1
+b <- 0.45
+s <- 50
+
+```
+
+
+# FIGURES ----------------------------------------------------------------------------------------------------------------------------------------------------
+
+### Figure 1 ---------------------------------------------------------------------
+A. Experimental Setup (empty plot)
+B-D. Volcano plots showing differentially expressed genes
+C. Heatmap of differentially expressed genes with pathway overrepresentation analysis
+
+Data
+```{r}
+RNAmem <- readRDS(fp(params$data, "RNAmem.rds"))
+
+```
+
+Plots
+```{r}
+A <- gg_empty
+
+# parameters
+fontsize = 10
+titlesize = 14
+lwd = 0.5
+nlabels = 20
+as = 9
+ts = 9
+b = 0
+scale_size = FALSE
+mo = 8
+x <- 20
+
+prot_genes <- subset(RNAmem$biotypes, transcript_biotype == "protein_coding")$hgnc_symbol
+RNAmem$deseq2$results$TSCMvsTN$gene[!RNAmem$deseq2$results$TSCMvsTN$gene %in% prot_genes] <- ""
+RNAmem$deseq2$results$TCMvsTSCM$gene[!RNAmem$deseq2$results$TCMvsTSCM$gene %in% prot_genes] <- ""
+RNAmem$deseq2$results$TEMvsTCM$gene[!RNAmem$deseq2$results$TEMvsTCM$gene %in% prot_genes] <- ""
+
+
+B <- RNAmem$deseq2$results$TSCMvsTN |> volcano(title = "TSCMvsTN", label = gene, xlim = c(-x,x), ylim = c(0,60), lwd = lwd, nlabels = nlabels, labface = "italic",
+                                               color_up = colors$gene$up, color_down = colors$gene$down, color_nonsig = colors$gene$na,
+                                               axis_size = axis_lab_size, axis_title_size = axis_title_size, leg_size = NA, title_size = panel_title_size, box.padding = b, max_overlaps = mo,
+                                               point_size = volc_rna_points, lab_size = volc_label_size, scale_size = scale_size, clip = FALSE)
+
+C <- RNAmem$deseq2$results$TCMvsTSCM |> volcano(title = "TCMvsTSCM", label = gene, xlim = c(-x,x), ylim = c(0,30), lwd = lwd, nlabels = nlabels, labface = "italic",
+                                                color_up = colors$gene$up, color_down = colors$gene$down, color_nonsig = colors$gene$na,
+                                                axis_size = axis_lab_size, axis_title_size = axis_title_size, leg_size = NA, title_size = panel_title_size, box.padding = b, max_overlaps = mo,
+                                                 point_size = volc_rna_points, lab_size = volc_label_size, scale_size = scale_size, clip = FALSE)
+
+D <- RNAmem$deseq2$results$TEMvsTCM |> volcano(title = "TEMvsTCM", label = gene, xlim = c(-x,x), ylim = c(0,20), lwd = lwd, nlabels = nlabels, labface = "italic",
+                                               color_up = colors$gene$up, color_down = colors$gene$down, color_nonsig = colors$gene$na,
+                                               axis_size = axis_lab_size, axis_title_size = axis_title_size, leg_size = NA, title_size = panel_title_size, box.padding = b, max_overlaps = mo,
+                                                 point_size = volc_rna_points, lab_size = volc_label_size, scale_size = scale_size, clip = FALSE)
+
+cl <- c("1-UDDD","2-DUUU","3-DUDU","4-UDUD","5-UUDD","6-DUDD","7-UDUU","8-DUUD","9-UDDU","10-DDUD","11-UUDU","12-DDUU","13-DDDU","14-UUUD")
+names(cl) <- sub(".*-", "", cl)
+
+RNAmem$pattern$name <- cl[RNAmem$pattern$pattern]
+hm_annotation <- vector(mode = "list", length = length(unique(RNAmem$pattern$pattern))) |>
+  setNames(sort(unique(RNAmem$pattern[rownames(RNAmem$heatmap_data),]$pattern)))
+
+rsplit <- factor(RNAmem$pattern[rownames(RNAmem$heatmap_data),]$name, ordered = TRUE, levels = cl)
+
+# manual annotation with the most enriched pathways
+hm_annotation$DDDU <- c("HALLMARK apoptosis")
+hm_annotation$DDUD <- c("GO actin cytoskeleton organization")
+hm_annotation$DDUU <- c("GO leukocyte activation")
+hm_annotation$DUDD <- c("KEGG glyoxylate and dicarboxylate metabolism")
+hm_annotation$DUDU <- c("GO ribosome biogenesis",
+                        "HALLMARK myc targets v1/v2",
+                        "GO translation",
+                        "GO RNA splicing",
+                        "GO protein folding")
+hm_annotation$DUUD <- c("GO phosphatidylinositol 3-kinase complex",
+                        "GO sterol biosynthetic process")
+hm_annotation$DUUU <- c("HALLMARK e2f targets",
+                        "GO mitotic cell cycle",
+                        "HALLMARK oxidative phosphorylation",
+                        "GO cell division",
+                        "MitoCarta oxphos",
+                        "HALLMARK mtorc1 signaling",
+                        "HALLMARK myc targets v1",
+                        "GO NADH dehydrogenase activity",
+                        "HALLMARK fatty acid metabolism",
+                        "HALLMARK glycolysis")
+hm_annotation$UDDD <- c("GO regulation of leukocyte activation",
+                        "GO histone binding",
+                        "GO interleukin-12 production")
+hm_annotation$UDDU <- c("GO response to endoplasmic reticulum stress")
+hm_annotation$UDUD <- c("GO lysosome",
+                        "GO antigen processing and presentation",
+                        "GO MHC protein complex")
+hm_annotation$UDUU <- c("GO regulation of immune response")
+hm_annotation$UUDD <- c("GO Wnt-activated receptor activity")
+hm_annotation$UUDU <- c("GO regulation of cell cycle")
+hm_annotation$UUUD <- c("GO cellular response to calcium ion")
+
+names(hm_annotation) <- paste(c(13, 10, 12, 6, 3, 8, 2, 1, 9, 4, 7, 5, 11, 14), names(hm_annotation), sep = "-")
+hm_annotation <- hm_annotation[levels(rsplit)]
+
+ha = rowAnnotation(pathways = anno_empty(border = FALSE, width = unit(80, "mm")))
+
+hm <- RNAmem$heatmap_data |>
+  ComplexHeatmap::Heatmap(cluster_columns = FALSE,
+                          width = unit(full_width*0.15 * 72/300, "pt"),
+                          name = "z-expr.",
+                          right_annotation = ha,
+                          row_split = rsplit,
+                          row_gap = grid::unit(7, "pt"),
+                          row_title_rot = 0,
+                          column_title_gp = grid::gpar(fontsize = titlesize),
+                          row_title_gp = grid::gpar(fontsize = titlesize),
+                          row_names_gp = grid::gpar(fontsize = fontsize),
+                          column_names_gp = grid::gpar(fontsize = fontsize), 
+                          cluster_row_slices = FALSE,
+                          column_split = RNAmem$design[colnames(RNAmem$heatmap_data),]$Celltype,
+                          show_row_names = FALSE)
+
+hm_anno_colors <- pals::polychrome(length(hm_annotation)) |> colorspace::darken(amount = 0.7) |> setNames(names(hm_annotation))
+
+hmdraw <- function(){
+  draw(hm, heatmap_legend_side = "left")
+  for(i in seq(hm_annotation)) {
+      decorate_annotation(annotation = "pathways",
+                          slice = i,
+                          code = {
+                            grid.rect(x = 0, width = unit(1, "mm"), gp = gpar(fill = hm_anno_colors[i], col = NA), just = "left")
+                            grid.text(paste(hm_annotation[[i]], collapse = "\n"), gp = gpar(col = hm_anno_colors[i], fontsize = fontsize), x = unit(5, "mm"), just = "left")
+                          })
+  }
+}
+
+E <- grid.grabExpr(hmdraw())
+
+```
+
+Figure
+```{r}
+
+p <- list(A, B, C, D, E)
+
+layout <- "
+AEE
+BEE
+BEE
+CEE
+CEE
+DEE
+DEE
+"
+
+Fig1 <-  wrap_plots(p, guides = "collect", tag_level = "new", design = layout)
+Fig1 <- Fig1 + plot_annotation(tag_levels = 'A',  theme = theme(plot.tag = element_text(size = 8))) & theme_fig
+Fig1 %>% saveplot(file.path(params$figures, "Figure1"), dev = params$format, width =  full_width, height =  full_height*0.8)
+
+```
+
+
+### Figure 2 ---------------------------------------------------------------------
+13C flux map of central carbon metabolism
+
+Data
+```{r}
+C13mem <- readRDS(fp(params$data, "C13mem.rds"))
+C13cells <- subset(C13mem, Sampletype == "cells")
+
+```
+
+Plots
+```{r}
+
+dir.create(fp(params$figures, "isoplots"), showWarnings = FALSE)
+
+C13cells |>
+  isoplot(summarise_by = Celltype, assay = "mid_clean",
+          col_cex = 0.5, linewidth = 2, nacolor = "white", colorscale = c("white", "#1702a1"),
+          dir = fp(params$figures, "isoplots"), title = "ID", height = 10, title_size = 120, fontsize = 100,
+          dev = "pdf", label = FALSE, cumulative = TRUE, legend = FALSE)
+
+# plot legend
+leg_plot <- C13cells |>
+  isoplot(summarise_by = Celltype, assay = "mid_clean", mets = "lac", fontsize = 120, colorscale = c("white", "#1702a1"))
+leg_plot <- leg_plot + theme_basic() + theme(plot.background = element_blank(), panel.background = element_blank(), legend.background = element_blank()) +
+  guides(fill = guide_colourbar(barheight = grid::unit(200, "mm"), barwidth = grid::unit(20, "mm"), raster = FALSE, nbin = 20,
+                                ticks.colour = "black", frame.colour = "black", ticks.linewidth = 0.5, frame.linewidth = 0.5))
+cowplot::get_legend(leg_plot) |>
+  cowplot::ggsave2(filename = fp(params$figures, "isoplots", "legend.pdf"), dev = "pdf", width = 10, height = 20)
+
+```
+
+Figure: The individual plots need to be assembled manually.
+
+
+### Figure 3 ---------------------------------------------------------------------
+Volcano plots of metabolite abundances (A-C)
+and isotopomer fractions (D-F).
+G. Seahorse analysis of ECAR and OCR
+
+Data
+```{r}
+C13mem <- readRDS(fp(params$data, "C13mem.rds"))
+seahorse <- read.xlsx("../data/seahorse/Seahorse_data.xlsx")
+```
+
+Plots
+```{r}
+
+# Plots (13C)
+lab_size <- volc_label_size + 4
+nlabels <- 20
+lwd = 0.5
+point_size = 3
+max_overlaps = Inf
+r <- 100
+a <- 1
+b <- 0.45
+s <- 50
+
+# A-C. Volcano plot of metabolites
+A <- C13mem@results$met$norm$lmm$TSCMvsTN_cells |>
+  volcano(title = "TSCMvsTN", xlim = c(-15,15), ylim = c(0,14),
+          lwd = lwd, nlabels = nlabels, lab_size = lab_size, clip = FALSE,
+          max_overlaps = max_overlaps, repel = r, attract = a, point_size = point_size,
+          title_size = panel_title_size, axis_size = axis_lab_size, axis_title_size = axis_title_size, box.padding = b, leg_size = NA) + xlab("log2FC")
+
+B <- C13mem@results$met$norm$lmm$TCMvsTSCM_cells |>
+  volcano(title = "TCMvsTSCM", xlim = c(-3,3), ylim = c(0,5),
+          lwd = lwd, nlabels = nlabels, lab_size = lab_size, clip = FALSE,
+          max_overlaps = max_overlaps, repel = r, attract = a, point_size = point_size,
+          title_size = panel_title_size, axis_size = axis_lab_size, axis_title_size = axis_title_size, box.padding = b, leg_size = NA) + xlab("log2FC")
+
+C <- C13mem@results$met$norm$lmm$TEMvsTCM_cells |>
+  volcano(title = "TEMvsTCM", xlim = c(-3,3), ylim = c(0,14),
+          lwd = lwd, nlabels = nlabels, lab_size = lab_size, clip = FALSE,
+          max_overlaps = max_overlaps, repel = r, attract = a, point_size = point_size,
+          title_size = panel_title_size, axis_size = axis_lab_size, axis_title_size = axis_title_size, box.padding = b, leg_size = NA) + xlab("log2FC")
+
+
+# D-F. Volcano plot of isotopologues
+D <- C13mem@results$iso$mid_clean$beta$TSCMvsTN_cells |>
+  volcano(title = "TSCMvsTN", x = diff, xlim = c(-1,1), ylim = c(0,14),
+          lwd = lwd, nlabels = nlabels, lab_size = lab_size, clip = FALSE,
+          max_overlaps = max_overlaps, repel = r, attract = a, point_size = point_size,
+          title_size = panel_title_size, axis_size = axis_lab_size, axis_title_size = axis_title_size,  box.padding = b, leg_size = NA)
+
+E <- C13mem@results$iso$mid_clean$beta$TCMvsTSCM_cells |>
+  volcano(title = "TCMvsTSCM", x = diff, xlim = c(-1,1), ylim = c(0,14),
+          lwd = lwd, nlabels = nlabels, lab_size = lab_size, clip = FALSE,
+          max_overlaps = max_overlaps, repel = r, attract = a, point_size = point_size,
+          title_size = panel_title_size, axis_size = axis_lab_size, axis_title_size = axis_title_size,  box.padding = b, leg_size = NA)
+
+F <- C13mem@results$iso$mid_clean$beta$TEMvsTCM_cells |>
+  volcano(title = "TEMvsTCM", x = diff, xlim = c(-1,1), ylim = c(0,14),
+          lwd = lwd, nlabels = nlabels, lab_size = lab_size, clip = FALSE,
+          max_overlaps = max_overlaps, repel = r, attract = a, point_size = point_size,
+          title_size = panel_title_size, axis_size = axis_lab_size, axis_title_size = axis_title_size,  box.padding = b, leg_size = NA)
+
+
+# Plots (Seahorse)
+test <- "wilcox.test"
+set.seed(123)
+
+seahorse <- subset(seahorse, Celltype != "other")
+seahorse$Donor <- factor(seahorse$Donor)
+seahorse$Day <- factor(seahorse$Day)
+seahorse$Celltype <- factor(seahorse$Celltype, ordered = TRUE, levels = c("TN","TSCM","TCM","TEM"))
+seahorse$Baseline.Ratio <- seahorse$Baseline.ECAR / seahorse$Baseline.OCR
+seahorse$Stressed.Ratio <- seahorse$Stressed.ECAR / seahorse$Stressed.OCR
+
+shape = 4
+width = 0.1
+
+# ECAR
+G <- ggplot(seahorse, aes(x = Celltype, y = Baseline.ECAR)) + # shape = Donor
+  theme_gray(base_size = 20) + theme(axis.text = element_text(colour = "black"), legend.position = "none", plot.tag = element_text(size = size, face = "bold")) +
+  geom_boxplot(aes(x = Celltype, y = Baseline.ECAR, color = Celltype), fill = NA, inherit.aes = F, outlier.shape = NA) +
+  geom_jitter(width = width, shape = shape) + 
+  scale_color_manual(values = colors$celltype, guide = "none") +
+  xlab("") +
+  ylab("ECAR") + ylim(c(0,2500))
+G <- G + ggpubr::stat_compare_means(comparisons = list(c("TN", "TSCM"), c("TSCM", "TCM"),c("TCM", "TEM")), size = lab_size/ggplot2::.pt, method = test)
+
+# OCR
+H <- ggplot(seahorse, aes(x = Celltype, y = Baseline.OCR)) +
+  theme_gray(base_size = 20) + theme(axis.text = element_text(colour = "black"), legend.position = "none", plot.tag = element_text(size = size, face = "bold")) +
+  geom_boxplot(aes(x = Celltype, y = Baseline.OCR, color = Celltype), fill = NA, inherit.aes = F, outlier.shape = NA) +
+  geom_jitter(width = width, shape = shape) + 
+  scale_color_manual(values = colors$celltype, guide = "none") +
+  xlab("") +
+  ylab("OCR") + ylim(c(0,2000))
+H <- H + ggpubr::stat_compare_means(comparisons = list(c("TN", "TSCM"), c("TSCM", "TCM"),c("TCM", "TEM")), size = lab_size/ggplot2::.pt, method = test)
+
+# Ratios
+I <- ggplot(seahorse, aes(x = Celltype, y = log2(Baseline.Ratio))) +
+  theme_gray(base_size = 20) + theme(axis.text = element_text(colour = "black"), legend.position = "none", plot.tag = element_text(size = size, face = "bold")) +
+  geom_boxplot(aes(x = Celltype, y = log2(Baseline.Ratio), color = Celltype), fill = NA, inherit.aes = F, outlier.shape = NA) +
+  geom_jitter(width = width, shape = shape) + 
+  scale_color_manual(values = colors$celltype, guide = "none") +
+  xlab("") +
+  ylab("log2(ECAR/OCR)") + ylim(c(-2,4))
+I <- I + ggpubr::stat_compare_means(comparisons = list(c("TN", "TSCM"), c("TSCM", "TCM"),c("TCM", "TEM")), size = lab_size/ggplot2::.pt, method = test)
+
+```
+
+
+Figure
+```{r}
+p <- list(A, B, C, D, E, F, G, H, I)
+
+Fig3 <-  wrap_plots(p, guides = "collect", tag_level = "new", ncol = 3)
+Fig3 <- Fig3 + plot_annotation(tag_levels = 'A',  theme = theme(plot.tag = element_text(size = 8))) & theme_fig
+Fig3 %>% saveplot(file.path(params$figures, "Figure3"), dev = params$format, width =  full_width, height =  full_height*0.7)
+```
+
+
+### Figure 4 ---------------------------------------------------------------------
+A. Experimental Setup (empty plot)
+B. Volcano plot of differentially expressed genes
+C. Plot of selected significantly enriched gene sets
+D-E. Volcano plots of differentially abundant metabolites (D) and isotopologues (E)
+
+Data
+```{r}
+RNAexh <- readRDS(fp(params$data, "RNAexh.rds"))
+C13exh <- readRDS(fp(params$data, "C13exh.rds"))
+genesets <- read.delim("../tables/genesets.tsv.gz")
+```
+
+Plots
+```{r}
+
+lwd = 0.5
+max_overlaps = 20
+r <- 100
+a <- 1
+b <- 0.45
+s <- 50
+lab_size <- volc_label_size + 4
+
+A <- gg_empty
+
+B <- RNAexh$deseq2$results$TEXvsTEFF |> volcano(xlim = c(-10,10), ylim = c(0,100), nlabels = 8, labface = "italic", leg_size = NA,
+                                                color_up = colors$gene$up, color_down = colors$gene$down, color_nonsig = colors$gene$na,
+                                                clip = FALSE, lab_size = volc_label_size, max_overlaps = 12, lwd = lwd, repel = r, attract = a, point_size = volc_rna_points,
+                                                title_size = panel_title_size, axis_size = axis_lab_size, axis_title_size = axis_title_size, box.padding = b)
+
+# GSEA plot
+df <- RNAexh$gsea$TEXvsTEFF |> arrange(padj)
+up <- sum(subset(df, padj <= 0.05)$NES > 1)
+down <- sum(subset(df, padj <= 0.05)$NES < -1)
+
+df <- rbind(subset(df, NES > 0)[1:20,], subset(df, NES < 0)[1:30,])
+df <- df |> arrange(desc(padj))
+
+df$term <- cutstr(as.character(df$term), maxchar = 45)
+df$term <- factor(df$term, ordered = TRUE, levels = df$term)
+
+degenes <- subset(RNAexh$deseq2$results$TEXvsTEFF, padj <= 0.05)$gene
+df$frac <-sapply(as.character(df$term), function(tmp){
+  termgenes <- subset(genesets, term == tmp)$gene
+  mean(termgenes %in% degenes, na.rm=TRUE)
+})
+
+
+C <- ggplot(df, aes(x = NES, y = term, color = -log10(padj), size = frac)) +
+  theme(axis.text = element_text(colour = "black"),
+        axis.text.y = element_text(colour = "black", size = 9),
+        axis.ticks = element_line(colour = "black"),
+        panel.grid.major = element_line(colour = "grey80"), panel.background = element_blank()) +
+  geom_vline(xintercept = 0, colour = "grey60") +
+  geom_point() + 
+  scale_size_continuous(name = "frac. DE genes") +
+  scale_color_gradient(low = "#236362", high = "#27db72", name = "-log10 padj") + 
+  scale_x_continuous(limits = c(-3.2,3.2), breaks = seq(-3,3)) +
+  ylab("")
+
+
+D <- C13exh@results$met$norm$lmm$TEXvsTEFF_cells |> volcano(xlim = c(-2.5,2.5), ylim = c(0, 10), nlabels = 7, 
+                                                            lab_size = lab_size, leg_size = NA, lwd = lwd,  clip = FALSE,
+                                                            max_overlaps = max_overlaps, repel = r, attract = a, point_size = 3, title_size = panel_title_size,
+                                                            axis_size = axis_lab_size, axis_title_size = axis_title_size, box.padding = b) + xlab("log2FC")
+
+
+E <- C13exh@results$iso$mid_clean$beta$TEXvsTEFF_cells |> volcano(x = diff, xlim = c(-1,1), ylim = c(0, 14), nlabels = 10,
+                                                                  lab_size = lab_size, leg_size = NA, lwd = lwd,  clip = FALSE,
+                                                            max_overlaps = max_overlaps, repel = r, attract = a, point_size = 3, title_size = panel_title_size,
+                                                            axis_size = axis_lab_size, axis_title_size = axis_title_size, box.padding = b)
+
+```
+
+
+Figure
+```{r}
+p <- list(A, B, C, D, E)
+
+layout <- "
+AB
+CB
+CD
+CD
+CE
+CE
+"
+
+Fig4 <-  wrap_plots(p, guides = "keep", tag_level = "new", design = layout, widths = c(1,1))
+Fig4 <- Fig4 + plot_annotation(tag_levels = 'A',  theme = theme(plot.tag = element_text(size = 8))) & theme_fig
+Fig4 %>% saveplot(file.path(params$figures, "Figure4"), dev = params$format, width =  full_width, height =  full_height*0.6)
+
+# plot legend with color gradient separately as png:
+# cowplot::get_legend(C) |> cowplot::plot_grid() |> saveplot(file.path(params$figures, "Figure4legend"), dev = "png", width =  1000, height =  1500)
+```
+
+
+
+# SUPPLEMENTARY FIGURES --------------------------------------------------------------------------------------------------------------------------------------
+
+Data
+```{r}
+RNAmem <- readRDS(fp(params$data, "RNAmem.rds"))
+RNAexh <- readRDS(fp(params$data, "RNAexh.rds"))
+
+C13mem_cells <- readRDS(fp(params$data, "C13mem.rds")) |> subset(Sampletype == "cells" & Tracer == "13C")
+C13exh_cells <- readRDS(fp(params$data, "C13exh.rds")) |> subset(Sampletype == "cells" & Tracer == "13C")
+
+genesets <- read.delim("../tables/genesets.tsv.gz")
+markers <- readLines("../tables/markers.txt")
+
+cols <- c("TN", "TSCM", "TCM", "TEM", "TEFF", "TEX")
+
+# calculate mean expression levels
+tmp <- RNAexh$deseq2$results %L>% pull(., "padj", name = "gene")
+padj.exh <- tmp %S>% function(x){ x[names(tmp[[1]])] }
+padj.all <- full_join(rownames2col(RNAmem$deseq2$padj), rownames2col(padj.exh)) |> subset(!is.na(id)) |> col2rownames(col = id)
+expr <- full_join(rownames2col(RNAmem$deseq2$normcounts), rownames2col(RNAexh$deseq2$normcounts)) |> col2rownames()
+df <- rbind(RNAmem$design[,c("Celltype"),drop=FALSE], RNAexh$design[,c("Celltype"),drop=FALSE])
+rownames(df) <- make.names(rownames(df))
+expr <- expr[names(rowSums(!is.na(padj.all) > 0)),]
+expr_mean <- log2(expr + 1) |> summarise_cols(coldata = df, by = Celltype, FUN = rowMeans) |> matScale(rows = TRUE)
+```
+
+
+### Supplementary Figure 2: Differentiation markers.
+```{r}
+FigS2 <- expr_mean[intersect(markers, rownames(expr)), cols[1:4]] |>
+  cxheatmap(scale = "", title = "z-expr.", cluster_cols = FALSE,
+            fontsize = 18, rowcex = 0.8, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE)
+FigS2 %>% saveplot(file.path(params$figures, "FigureS2"), dev = params$format, width = full_width, height =  full_height*0.8)
+
+```
+
+
+### Supplementary Figure 3: Expression of genes related to glycolysis.
+```{r}
+genes <- subset(genesets, term == "MetabolicAtlas glycolysis_gluconeogenesis")$gene
+FigS3 <- expr_mean[genes, cols[1:4]] |> cxheatmap(column_title = "MetabolicAtlas Glycolysis/Gluconeogenesis", title = "z-expr.", cluster_cols = FALSE,
+                                                  fontsize = 18, rowcex = 0.8, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE)
+FigS3 %>% saveplot(file.path(params$figures, "FigureS3"), dev = params$format, width = full_width, height =  full_height*0.8)
+
+```
+
+
+### Supplementary Figure 4: Abundance ratios of selected metabolites.
+```{r}
+met_mem <- C13mem_cells |> assay("norm", type = "met") |> rownames2col()
+met_exh <- C13exh_cells |> assay("norm", type = "met") |> rownames2col()
+met_all <- full_join(met_mem, met_exh) |> col2rownames()
+met_df <- rbind(colData(C13mem_cells)[,c("Celltype", "Sampletype", "Donor")], colData(C13exh_cells)[,c("Celltype", "Sampletype", "Donor")])
+
+# per-sample calculation
+ratios <- met_all["fum",] / met_all["succ",]
+ratios[2,] <- met_all["accoa",] / met_all["coa",]
+ratios[3,] <- met_all["ser",] / met_all["p3g",]
+ratios[4,] <- met_all["gly",] / met_all["ser",]
+ratios[5,] <- met_all["gthox",] / met_all["gthrd",]
+ratios[6,] <- met_all["atp",] / met_all["adp",]
+ratios[7,] <- met_all["atp",] / met_all["amp",]
+ratios[8,] <- met_all["nadh",] / met_all["nad",]
+ratios[9,] <- met_all["nadph",] / met_all["nadp",]
+ratios[is.na(ratios)] <- NA
+ratios[is.infinite(data.matrix(ratios))] <- NA
+
+ggdf <- cjoin(met_df, data.frame(t(ratios)))
+
+ps <- 4
+
+# Differentiation
+ggdf1 <- subset(ggdf, !Celltype %in% c("TEFF","TEX"))
+A <- ggplot(ggdf1, aes(Celltype, fum, shape = Donor)) + xlab("") + ylab("fum/succ") + geom_point(size = ps)
+B <- ggplot(ggdf1, aes(Celltype, gly, shape = Donor)) + xlab("") + ylab("gly/ser") + geom_point(size = ps)
+C <- ggplot(ggdf1, aes(Celltype, gthox, shape = Donor)) + xlab("") + ylab("gssg/gsh") + geom_point(size = ps)
+D <- ggplot(ggdf1, aes(Celltype, nadh, shape = Donor)) + xlab("") + ylab("nadh/nad+") + geom_point(size = ps)
+
+# Exhaustion
+ggdf2 <- subset(ggdf, Celltype %in% c("TEFF","TEX"))
+E <- ggplot(ggdf2, aes(Celltype, nadh, shape = Donor)) + xlab("") + ylab("nadh/nad+") + geom_point(size = ps)
+F <- ggplot(ggdf2, aes(Celltype, fum, shape = Donor)) + xlab("") + ylab("fum/succ") + geom_point(size = ps)
+
+
+txt <- element_text(size = 25, colour = "black")
+th <- theme(axis.text = txt,
+            axis.title = txt,
+            axis.line = element_line(lineend = "square", colour = "black"),
+            plot.tag = element_text(size = 18, face = "bold"),
+            legend.text = txt,
+            legend.title = txt, # legend.key.size = ggplot2::unit(15, "pt"),
+            panel.background = element_blank(),
+            panel.grid.minor = element_blank(), panel.grid.major = element_line(colour = "grey85"))
+
+
+p <- list(A, B, C, D, E, F)
+
+layout <- "
+AA
+BB
+CC
+DD
+EF
+"
+
+FigS4 <-  wrap_plots(p, guides = "keep", tag_level = "new", design = layout, widths = c(1,1))
+FigS4 <- FigS4 + plot_annotation(tag_levels = 'A') & th
+FigS4 %>% saveplot(file.path(params$figures, "FigureS4"), dev = params$format, width =  full_width, height =  full_height)
+
+```
+
+
+### Supplementary Figure 5: Expression of genes in the TCA cycle.
+```{r}
+genes <- genesets |> subset(term %in% c("MitoCarta tca cycle")) |> pull(gene)
+FigS5 <- expr_mean[genes, cols[1:4]] |> cxheatmap(column_title = "MitoCarta TCA cycle", title = "z-expr.", cluster_cols = FALSE,
+                                                  fontsize = 18, rowcex = 0.8, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE)
+FigS5 %>% saveplot(file.path(params$figures, "FigureS5"), dev = params$format, width = full_width, height =  full_height*0.8)
+
+```
+
+
+### Supplementary Figure 6: Expression of mitochondrial NADH shuttles.
+```{r}
+genes <- list(
+  "malate shuttles (both)" = c("MDH1", "MDH2"),
+  "malate-aspartate" = c("GOT1", "GOT2", "SLC25A11", "SLC25A12", "SLC25A13"),
+  "citrate-malate" = c("SLC25A1", "ACLY"),
+  "glycerol-3-p"= c("GPD1", "GPD2"),
+  "proline cycle" = c("ALDH18A1", "PYCR1", "PYCR2", "PYCR3", "PRODH", "PRODH2", "ALDH4A1") # ALDH18A1 == P5CS, PYCR3 == PYCRL
+)
+
+df <- stack(genes) |> dplyr::rename(genes = values, shuttle = ind)
+FigS6 <- expr_mean[unlist(genes), cols[1:4]] |> cxheatmap(column_title = "NADH shuttles", title = "z-expr.", row_split = df$shuttle,
+                                                          cluster_rows = FALSE, cluster_cols = FALSE,
+                                                          row_title_gp = grid::gpar(fontsize = 18),
+                                                          row_gap = grid::unit(7, "pt"),
+                                                          fontsize = 18, rowcex = 0.8, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE)
+FigS6 %>% saveplot(fp(params$figures, "FigureS6"), dev = params$format, width = full_width, height =  full_height*0.8)
+
+```
+
+
+### Supplementary Figure 7: Amino acid transporters.
+```{r}
+genes <- genesets |> subset(term %in% c("GO L-amino acid transmembrane transporter activity")) |> pull(gene) |> unique()
+exp <- c(rep("differentiation", 4), rep("exhaustion", 2))
+FigS7 <- expr_mean[intersect(genes, rownames(expr_mean)), cols] |>
+  cxheatmap(column_title = "GO L-amino acid transmembrane transporter activity", column_split = exp, title = "z-expr.", cluster_cols = FALSE,
+            fontsize = 18, rowcex = 0.8, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE)
+FigS7 %>% saveplot(fp(params$figures, "FigureS7"), dev = params$format, width = full_width, height =  full_height*0.8)
+
+```
+
+ 
+### Supplementary Figure 8: OXPHOS subunit expression.
+```{r}
+genes <- genesets |> subset(term %in% c("MitoCarta oxphos subunits")) |> pull(gene)
+FigS8 <- expr_mean[intersect(genes, rownames(expr_mean)), cols[1:4]] |>
+  cxheatmap(column_title = "OXPHOS subunits", title = "z-expr.", cluster_cols = FALSE,
+            fontsize = 18, rowcex = 0.6, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE)
+FigS8 %>% saveplot(fp(params$figures, "FigureS8"), dev = params$format, width = full_width, height =  full_height*0.8)
+
+```
+
+
+### Supplementary Figure 9: Mitochondrial gene expression.
+```{r}
+mitomodel <- readRDS(fp(params$data, "mitomodel.rds"))
+size <- 25
+
+df <- data.frame(RNAmem$deseq2$design, Mito = mitomodel$pred_mem[rownames(RNAmem$deseq2$design)]) |>
+  mutate(Celltype = factor(Celltype, ordered = TRUE, levels = c("TN","TSCM","TCM","TEM")))
+A <- ggplot(df, aes(x = Celltype, y = Mito, shape = Donor)) + 
+  theme_gray(base_size = size) + theme(axis.text = element_text(colour = "black"), plot.tag = element_text(size = size, face = "bold")) +
+  geom_point(size = 4) + 
+  scale_color_manual(values = colors$celltype, guide = "none") +
+  xlab("") +
+  ylab("rel. mito. abundance") + ylim(c(0,900)) +
+  ggpubr::stat_compare_means(comparisons = list(c("TN", "TSCM"), c("TSCM", "TCM"),c("TCM", "TEM")), size = size/ggplot2::.pt, method = "t.test", paired = TRUE)
+
+df <- data.frame(RNAexh$deseq2$design, Mito = mitomodel$pred_exh[rownames(RNAexh$deseq2$design)]) |>
+  mutate(Celltype = factor(Celltype, ordered = TRUE, levels = c("TEFF","TEX")))
+df$Donor <- (as.numeric(df$Donor) + 3) |> as.character()
+B <- ggplot(df, aes(x = Celltype, y = Mito, shape = Donor)) + 
+  theme_gray(base_size = size) + theme(axis.text = element_text(colour = "black"), plot.tag = element_text(size = size, face = "bold")) +
+  geom_point(size = 4) + 
+  scale_color_manual(values = colors$celltype, guide = "none") +
+  xlab("") +
+  ylab("rel. mito. abundance") + ylim(c(0,500)) +
+  ggpubr::stat_compare_means(comparisons = list(c("TEFF", "TEX")), method = "t.test", size = size/ggplot2::.pt, paired = TRUE)
+
+txt <- element_text(size = 25, colour = "black")
+th <- theme(axis.text = txt,
+            axis.title = txt,
+            axis.line = element_line(lineend = "square", colour = "black"),
+            plot.tag = element_text(size = 18, face = "bold"),
+            legend.text = txt,
+            legend.title = txt,
+            panel.background = element_blank(),
+            panel.grid.minor = element_blank(), panel.grid.major = element_line(colour = "grey85"))
+
+FigS9 <-  wrap_plots(A, wrap_plots(B, plot_spacer(), nrow = 1, widths = c(1, 0.3)), guides = "keep", tag_level = "new", ncol = 1)
+FigS9 <- FigS9 + plot_annotation(tag_levels = 'A') & th
+FigS9 %>% saveplot(fp(params$figures, "FigureS9"), dev = params$format, width =  full_width, height =  full_height*0.6)
+```
+
+
+
+# TABLES ----------------------------------------------------------------------------------------------------------------------------------------------------
+
+Data
+```{r}
+RNAmem <- readRDS(fp(params$data, "RNAmem.rds"))
+RNAexh <- readRDS(fp(params$data, "RNAexh.rds"))
+C13mem <- readRDS(fp(params$data, "C13mem.rds"))
+C13exh <- readRDS(fp(params$data, "C13exh.rds"))
+```
+
+
+### Supplementary Table 1: Differentially expressed genes in differentiation and exhaustion.
+```{r}
+nameslib <- union(rownames(RNAmem$counts),rownames(RNAexh$counts)) |> convertGeneIDs(from = "SYMBOL",to = "GENENAME")
+(c(RNAmem$deseq2$results, RNAexh$deseq2$results) %L>% mutate(., description = nameslib[gene]) %L>% arrange(., pvalue, abs(log2FC), baseMean, gene)) |>
+  writeTables(rowNames = FALSE, file = fp(params$tables, "TableS1.xlsx"))
+```
+
+
+### Supplementary Table 2: Gene set over-representation analysis of gene clusters in differentiation.
+```{r}
+cl <- c("1-UDDD","2-DUUU","3-DUDU","4-UDUD","5-UUDD","6-DUDD","7-UDUU","8-DUUD","9-UDDU","10-DDUD","11-UUDU","12-DDUU","13-DDDU","14-UUUD")
+names(cl) <- sub(".*-", "", cl)
+
+tmp <- RNAmem$ora_cluster |> setNames(cl[names(RNAmem$ora_cluster)])
+tmp <- tmp[order(as.numeric(sub("-.*", "", names(tmp))))]
+tmp |> writeTables(rowNames = FALSE, file = fp(params$tables, "TableS2.xlsx"))
+```
+
+
+### Supplementary Table 3: Metabolomics results (differentiation).
+```{r}
+ix <- c("TSCMvsTN_cells", "TCMvsTSCM_cells", "TEMvsTCM_cells")
+
+res_met <- C13mem@results$met$norm$lmm[ix] %L>% dplyr::select(., -lfc.mean, -padj_all) %L>% rownames2col(col = "id")
+res_met <- res_met %L>% function(x){ x$metabolite = metData(C13mem)[x$id,]$name; x }
+res_met <- res_met %L>% arrange(., pval, desc(abs(lfc)))
+names(res_met) <- paste0("Met_", names(res_met))
+
+res_mid <- C13mem@results$iso$mid_clean$beta[ix] %L>% dplyr::select(., -diff.mean, -lfc, -padj_all) %L>% rownames2col(col = "id")
+res_mid <- res_mid %L>% function(x){ x$metabolite = metData(C13mem)[isoData(C13mem)[x$id,]$metabolite,"name"]; x }
+res_mid <- res_mid %L>% arrange(., pval, desc(abs(diff)))
+names(res_mid) <- paste0("Iso_", names(res_mid))
+
+writeTables(c(res_met, res_mid), rowNames = FALSE, adjwidths = TRUE, keepNA = TRUE, file = fp(params$tables, "TableS3"))
+```
+
+
+### Supplementary Table 4: Expression of selected genes in public data.
+```{r}
+GSE210534 <- readRDS(file.path(params$data, "GSE210534_data.rds"))
+
+genes <- c("KLF2", "TCF7", "BTG1", "BTG2", "MYC", "PDCD1", "TXNIP", "PYCR1", "PYCR2", "PYCR3",
+           "ALDH18A1", "LDHA", "SLC7A5", "SLC1A5", "SLC38A5", "SDHA", "SDHB", "SDHC", "SDHD")
+
+res <- GSE210534$DE$results$TexvsTeff[genes,] |> subset(padj <= 0.05) |> dplyr::arrange(gene)
+
+writeTables(list("GSE210534_TEXvsTEFF" = res), rowNames = FALSE, file = fp(params$tables, "TableS4"))
+```
+
+
+### Supplementary Table 5: Gene set enrichment analysis (exhaustion).
+```{r}
+tmp <- RNAexh$gsea$TEXvsTEFF |>  dplyr::rename(ID = term, Size = size)
+writeTables(list(TEXvsTEFF = tmp[,c("ID","pvalue","padj","NES","ES","Size")]), rowNames = FALSE, file = fp(params$tables, "TableS5.xlsx"))
+```
+
+
+### Supplementary Table 6: Metabolomics results (exhaustion).
+```{r}
+ix <- c("TEXvsTEFF_cells")
+
+res_met <- C13exh@results$met$norm$lmm[ix] %L>% dplyr::select(., -lfc.mean, -padj_all) %L>% rownames2col(col = "id")
+res_met <- res_met %L>% function(x){ x$metabolite = metData(C13exh)[x$id,]$name; x }
+res_met <- res_met %L>% arrange(., pval, desc(abs(lfc)))
+names(res_met) <- paste0("Met_", names(res_met))
+
+res_mid <- C13exh@results$iso$mid_clean$beta[ix] %L>% dplyr::select(., -diff.mean, -lfc, -padj_all) %L>% rownames2col(col = "id")
+res_mid <- res_mid %L>% function(x){ x$metabolite =  metData(C13exh)[isoData(C13exh)[x$id,]$metabolite,"name"]; x }
+res_mid <- res_mid %L>% arrange(., pval, desc(abs(diff)))
+names(res_mid) <- paste0("Iso_", names(res_mid))
+
+writeTables(c(res_met, res_mid), rowNames = FALSE, adjwidths = TRUE, keepNA = TRUE, file = file.path(params$tables, "TableS6"))
+```
+

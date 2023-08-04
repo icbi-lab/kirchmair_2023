@@ -1,0 +1,13 @@
+sample,fastq_1,fastq_2,strandedness,Celltype,Donor
+TCM1,data/rnaseq/MEM/01_TRIMMED/TCM1.fastq.gz,,forward,TCM,1
+TCM2,data/rnaseq/MEM/01_TRIMMED/TCM2.fastq.gz,,forward,TCM,2
+TCM3,data/rnaseq/MEM/01_TRIMMED/TCM3.fastq.gz,,forward,TCM,3
+TEM1,data/rnaseq/MEM/01_TRIMMED/TEM1.fastq.gz,,forward,TEM,1
+TEM2,data/rnaseq/MEM/01_TRIMMED/TEM2.fastq.gz,,forward,TEM,2
+TEM3,data/rnaseq/MEM/01_TRIMMED/TEM3.fastq.gz,,forward,TEM,3
+TN1,data/rnaseq/MEM/01_TRIMMED/TN1.fastq.gz,,forward,TN,1
+TN2,data/rnaseq/MEM/01_TRIMMED/TN2.fastq.gz,,forward,TN,2
+TN3,data/rnaseq/MEM/01_TRIMMED/TN3.fastq.gz,,forward,TN,3
+TSCM1,data/rnaseq/MEM/01_TRIMMED/TSCM1.fastq.gz,,forward,TSCM,1
+TSCM2,data/rnaseq/MEM/01_TRIMMED/TSCM2.fastq.gz,,forward,TSCM,2
+TSCM3,data/rnaseq/MEM/01_TRIMMED/TSCM3.fastq.gz,,forward,TSCM,3

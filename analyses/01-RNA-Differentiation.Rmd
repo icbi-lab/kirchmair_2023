@@ -1,0 +1,137 @@
+---
+title: "RNA-Differentiation"
+author: "Alexander Kirchmair"
+params:
+  use_geo:    TRUE
+---
+
+```{r setup, include=FALSE}
+
+library(datamisc)
+library(DESeq2)
+library(ggplot2)
+library(org.Hs.eg.db)
+library(dplyr)
+library(GEOquery)
+library(clusterProfiler)
+
+dir.create("../data/rnaseq", showWarnings = FALSE)
+
+```
+
+
+## Prepare data and metadata
+```{r}
+RNAmem <- list()
+
+RNAmem$design <- getGEO("GSE234099")[[1]] |>
+  pData() |>
+  mutate(Celltype = sub("\\d", "", title)) |>
+  rename(Donor = 'donor:ch1', Day = 'day:ch1', Treatment = 'treatment:ch1', Accession = 'geo_accession') |> 
+  col2rownames(title) |> 
+  select(Celltype, Donor, Day, Treatment, Accession)
+
+RNAmem$design$Celltype <- relevel(factor(RNAmem$design$Celltype), ref = "TN")
+RNAmem$design$Donor <- relevel(factor(RNAmem$design$Donor), ref = "1")
+```
+
+
+Read raw counts (either from GEO or from the nf-core preprocessing)
+```{r}
+
+if (dir.exists("../data/rnaseq/MEM/02_NF_results") & params$use_geo != TRUE){
+  # Import raw counts files
+  nf_results <- nf_importTX("../data/rnaseq/MEM/02_NF_results")
+  RNAmem$counts <- nf_results$counts[,rownames(RNAmem$design)]
+  
+} else {
+  # Download from GEO
+  RNAmem$countsfile <- getGEOSuppFiles("GSE234099", makeDirectory = FALSE, baseDir = "../data/rnaseq/MEM") |> rownames()
+  RNAmem$counts <- read.delim(RNAmem$countsfile, row.names = 1) |> data.matrix()
+}
+
+RNAmem$biotypes <- getBiomaRt(rownames(RNAmem$counts))
+
+```
+
+
+## Differential expression analysis
+```{r}
+RNAmem$formula <- ~ Celltype + Donor
+
+RNAmem$contrasts <- list(TSCMvsTN = c("Celltype", "TSCM", "TN"),
+                         TCMvsTSCM = c("Celltype", "TCM", "TSCM"),
+                         TEMvsTCM = c("Celltype", "TEM", "TCM"))
+
+RNAmem$deseq2 <- runDESeq2(RNAmem$counts[,rownames(RNAmem$design)], design = RNAmem$design, formula = RNAmem$formula, contrasts = RNAmem$contrasts)
+
+genes <- RNAmem$deseq2$results$TSCMvsTN |> rownames() |> sort()
+RNAmem$deseq2$log2FC <- RNAmem$deseq2$results %L>% pull(., "log2FC", name = "gene") %S>% function(x){ x[genes] }
+RNAmem$deseq2$log2FCshrink <- RNAmem$deseq2$results %L>% pull(., "log2FCshrink", name = "gene") %S>% function(x){ x[genes] }
+RNAmem$deseq2$padj <- RNAmem$deseq2$results %L>% pull(., "padj", name = "gene") %S>% function(x){ x[genes] }
+
+```
+
+
+## Cluster gene set analysis
+```{r}
+cols <- c("TN1", "TN2", "TN3", "TSCM1", "TSCM2", "TSCM3", "TCM1", "TCM2", "TCM3", "TEM1", "TEM2", "TEM3")
+
+expr <- log2(RNAmem$deseq2$normcounts+1) |> matScale(rows = TRUE)
+expr_mean <- expr |> summarise_cols(coldata = RNAmem$design, by = Celltype, FUN = rowMeans)
+expr_mean <- expr_mean[,c("TN","TSCM","TCM","TEM")] 
+
+genes <- rownames(RNAmem$deseq2$padj)[matrixStats::rowAnys(RNAmem$deseq2$padj <= 0.05)]
+expr_mean_pattern <- expr_mean*NA
+expr_mean_pattern[expr_mean > 0] <- "U"
+expr_mean_pattern[expr_mean < 0] <- "D"
+
+# check if the transitions are signif.
+trans <- t(apply(expr_mean_pattern, 1, function(x) x[-1] != x[-4] ))
+trans <- trans[rownames(RNAmem$deseq2$padj),]
+colnames(trans) <- colnames(RNAmem$deseq2$padj)
+sig <- RNAmem$deseq2$padj <= 0.05
+genes <- intersect(genes, rownames(trans)[rowAnys(trans & sig)])
+
+RNAmem$pattern <- data.frame(pattern = apply(expr_mean_pattern, 1, paste0, collapse = ""),
+                  gene = rownames(expr_mean_pattern))
+RNAmem$heatmap_data <- expr[genes,cols]
+```
+
+
+```{r}
+genesets <- read.delim("../tables/genesets.tsv.gz")
+gssize <- split(genesets$gene, genesets$term) %S>% length()
+
+RNAmem$ora_cluster <- split(RNAmem$pattern[genes,]$gene, RNAmem$pattern[genes,]$pattern) %L>% function(g){
+  ora <- clusterProfiler::enricher(gene = g,
+                                   universe = rownames(RNAmem$deseq2$normcounts),
+                                   TERM2GENE = genesets,
+                                   minGSSize = 3,
+                                   maxGSSize = 1000,
+                                   pAdjustMethod = "fdr", pvalueCutoff = 1, qvalueCutoff = 1)
+  
+  df <- as.data.frame(ora)
+  
+  df$Size <- gssize[df$ID]
+  df$GeneRatioNum <- df$GeneRatio |> strsplit(split = "/", fixed = T) |> lapply(FUN = as.numeric) |> sapply(FUN = function(yy) yy[1]/yy[2] )
+  df$BgRatioNum <- df$BgRatio |> strsplit(split = "/", fixed = T) |> lapply(FUN = as.numeric) |> sapply(FUN = function(yy) yy[1]/yy[2] )
+  df$Fraction <- sapply(df$ID, function(id) mean(subset(genesets, term == id)$gene %in% g))
+  
+  df <- subset(df, Count >= 2 & Fraction >= 0.01)
+  df$padj <- p.adjust(df$pvalue, method = "fdr")
+  df$p.adjust <- NULL
+  df$qvalue <- NULL
+  
+  df <- df[,c("ID", "pvalue", "padj", "Count", "Size", "Fraction", "GeneRatio", "BgRatio", "GeneRatioNum", "BgRatioNum")] # add genes
+  
+  subset(df, padj <= 0.25)
+}
+
+```
+
+
+```{r}
+saveRDS(RNAmem, "../data/RNAmem.rds")
+```
+
