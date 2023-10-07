@@ -7,7 +7,6 @@ params:
 
 
 ```{r setup, include=FALSE}
-
 library(c13ms)
 library(datamisc)
 library(dplyr)
@@ -15,7 +14,6 @@ library(openxlsx)
 
 dir.create("../data/metabolomics", showWarnings = FALSE)
 dir.create(params$results, showWarnings = FALSE)
-
 ```
 
 

@@ -18,7 +18,6 @@ library(TCGAbiolinks)
 dir.create(params$data, showWarnings = FALSE)
 if (!exists("mitodata"))  mitodata <- list()
 if (!exists("mitogenes"))  mitogenes <- list()
-
 ```
 
 
@@ -234,7 +233,8 @@ linmod <- lm(tumor_copy_number ~ ., data = ndata[,sel])
 selmod <- step(linmod, trace = FALSE, steps = 10000)
 summary(selmod)
 
-mitomodel$fit <- selmod
+mitomodel$linmod <- linmod
+mitomodel$selmod <- selmod
 ```
 
 

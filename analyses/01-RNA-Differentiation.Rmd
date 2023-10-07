@@ -6,7 +6,6 @@ params:
 ---
 
 ```{r setup, include=FALSE}
-
 library(datamisc)
 library(DESeq2)
 library(ggplot2)
@@ -16,7 +15,6 @@ library(GEOquery)
 library(clusterProfiler)
 
 dir.create("../data/rnaseq", showWarnings = FALSE)
-
 ```
 
 
