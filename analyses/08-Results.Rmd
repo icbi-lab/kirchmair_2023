@@ -6,6 +6,7 @@ params:
   figures:  ../results
   tables:  ../results
   format:   pdf
+  label:    FALSE
 ---
 
 ```{r setup, include=FALSE}
@@ -173,7 +174,7 @@ hm <- RNAmem$heatmap_data |>
                           name = "z-expr.",
                           right_annotation = ha,
                           row_split = rsplit,
-                          row_gap = grid::unit(7, "pt"),
+                          row_gap = grid::unit(5, "pt"),
                           row_title_rot = 0,
                           column_title_gp = grid::gpar(fontsize = titlesize),
                           row_title_gp = grid::gpar(fontsize = titlesize),
@@ -184,18 +185,6 @@ hm <- RNAmem$heatmap_data |>
                           show_row_names = FALSE)
 
 hm_anno_colors <- pals::polychrome(length(hm_annotation)) |> colorspace::darken(amount = 0.7) |> setNames(names(hm_annotation))
-
-hmdraw <- function(){
-  draw(hm, heatmap_legend_side = "left")
-  for(i in seq(hm_annotation)) {
-      decorate_annotation(annotation = "pathways",
-                          slice = i,
-                          code = {
-                            grid.rect(x = 0, width = unit(1, "mm"), gp = gpar(fill = hm_anno_colors[i], col = NA), just = "left")
-                            grid.text(paste(hm_annotation[[i]], collapse = "\n"), gp = gpar(col = hm_anno_colors[i], fontsize = fontsize), x = unit(5, "mm"), just = "left")
-                          })
-  }
-}
 
 E <- grid.grabExpr(hmdraw())
 
@@ -218,6 +207,9 @@ DEE
 
 Fig1 <-  wrap_plots(p, guides = "collect", tag_level = "new", design = layout)
 Fig1 <- Fig1 + plot_annotation(tag_levels = 'A',  theme = theme(plot.tag = element_text(size = 8))) & theme_fig
+if (params$label == TRUE){
+  Fig1 <- plot_grid(Fig1, textGrob("Figure 1", x = unit(0.5, "npc"), y = unit(0.5, "npc")), ncol = 1, rel_heights = c(0.95,0.05))
+}
 Fig1 %>% saveplot(file.path(params$figures, "Figure1"), dev = params$format, width =  full_width, height =  full_height*0.8)
 
 ```
@@ -236,22 +228,22 @@ C13cells <- subset(C13mem, Sampletype == "cells")
 Plots
 ```{r}
 
-dir.create(fp(params$figures, "isoplots"), showWarnings = FALSE)
-
-C13cells |>
-  isoplot(summarise_by = Celltype, assay = "mid_clean",
-          col_cex = 0.5, linewidth = 2, nacolor = "white", colorscale = c("white", "#1702a1"),
-          dir = fp(params$figures, "isoplots"), title = "ID", height = 10, title_size = 120, fontsize = 100,
-          dev = "pdf", label = FALSE, cumulative = TRUE, legend = FALSE)
-
-# plot legend
-leg_plot <- C13cells |>
-  isoplot(summarise_by = Celltype, assay = "mid_clean", mets = "lac", fontsize = 120, colorscale = c("white", "#1702a1"))
-leg_plot <- leg_plot + theme_basic() + theme(plot.background = element_blank(), panel.background = element_blank(), legend.background = element_blank()) +
-  guides(fill = guide_colourbar(barheight = grid::unit(200, "mm"), barwidth = grid::unit(20, "mm"), raster = FALSE, nbin = 20,
-                                ticks.colour = "black", frame.colour = "black", ticks.linewidth = 0.5, frame.linewidth = 0.5))
-cowplot::get_legend(leg_plot) |>
-  cowplot::ggsave2(filename = fp(params$figures, "isoplots", "legend.pdf"), dev = "pdf", width = 10, height = 20)
+# dir.create(fp(params$figures, "isoplots"), showWarnings = FALSE)
+# 
+# C13cells |>
+#   isoplot(summarise_by = Celltype, assay = "mid_clean",
+#           col_cex = 0.5, linewidth = 2, nacolor = "white", colorscale = c("white", "#1702a1"),
+#           dir = fp(params$figures, "isoplots"), title = "ID", height = 10, title_size = 120, fontsize = 100,
+#           dev = "pdf", label = FALSE, cumulative = TRUE, legend = FALSE)
+# 
+# # plot legend
+# leg_plot <- C13cells |>
+#   isoplot(summarise_by = Celltype, assay = "mid_clean", mets = "lac", fontsize = 120, colorscale = c("white", "#1702a1"))
+# leg_plot <- leg_plot + theme_basic() + theme(plot.background = element_blank(), panel.background = element_blank(), legend.background = element_blank()) +
+#   guides(fill = guide_colourbar(barheight = grid::unit(200, "mm"), barwidth = grid::unit(20, "mm"), raster = FALSE, nbin = 20,
+#                                 ticks.colour = "black", frame.colour = "black", ticks.linewidth = 0.5, frame.linewidth = 0.5))
+# cowplot::get_legend(leg_plot) |>
+#   cowplot::ggsave2(filename = fp(params$figures, "isoplots", "legend.pdf"), dev = "pdf", width = 10, height = 20)
 
 ```
 
@@ -376,6 +368,9 @@ p <- list(A, B, C, D, E, F, G, H, I)
 
 Fig3 <-  wrap_plots(p, guides = "collect", tag_level = "new", ncol = 3)
 Fig3 <- Fig3 + plot_annotation(tag_levels = 'A',  theme = theme(plot.tag = element_text(size = 8))) & theme_fig
+if (params$label == TRUE){
+  Fig3 <- plot_grid(Fig3, textGrob("Figure 3", x = unit(0.5, "npc"), y = unit(0.5, "npc")), ncol = 1, rel_heights = c(0.95,0.05))
+}
 Fig3 %>% saveplot(file.path(params$figures, "Figure3"), dev = params$format, width =  full_width, height =  full_height*0.7)
 ```
 
@@ -471,10 +466,13 @@ CE
 
 Fig4 <-  wrap_plots(p, guides = "keep", tag_level = "new", design = layout, widths = c(1,1))
 Fig4 <- Fig4 + plot_annotation(tag_levels = 'A',  theme = theme(plot.tag = element_text(size = 8))) & theme_fig
+if (params$format == "jpg"){
+  Fig4 <- plot_grid(Fig4, textGrob("Figure 4", x = unit(0.5, "npc"), y = unit(0.5, "npc")), ncol = 1, rel_heights = c(0.95,0.05))
+}
 Fig4 %>% saveplot(file.path(params$figures, "Figure4"), dev = params$format, width =  full_width, height =  full_height*0.6)
 
 # plot legend with color gradient separately as png:
-# cowplot::get_legend(C) |> cowplot::plot_grid() |> saveplot(file.path(params$figures, "Figure4legend"), dev = "png", width =  1000, height =  1500)
+cowplot::get_legend(C) |> cowplot::plot_grid() |> saveplot(file.path(params$figures, "Figure4legend"), dev = "png", width =  1000, height =  1500)
 ```
 
 
@@ -488,6 +486,8 @@ RNAexh <- readRDS(fp(params$data, "RNAexh.rds"))
 
 C13mem_cells <- readRDS(fp(params$data, "C13mem.rds")) |> subset(Sampletype == "cells" & Tracer == "13C")
 C13exh_cells <- readRDS(fp(params$data, "C13exh.rds")) |> subset(Sampletype == "cells" & Tracer == "13C")
+
+public <- readRDS(fp(params$data, "public.rds"))
 
 genesets <- read.delim("../tables/genesets.tsv.gz")
 markers <- readLines("../tables/markers.txt")
@@ -508,10 +508,39 @@ expr_mean <- log2(expr + 1) |> summarise_cols(coldata = df, by = Celltype, FUN =
 
 ### Supplementary Figure 2: Differentiation markers.
 ```{r}
-FigS2 <- expr_mean[intersect(markers, rownames(expr)), cols[1:4]] |>
+A <- public$gsva_bulk |> cxheatmap(scale = "row") |> draw() |> grid.grabExpr()
+B <- public$gsva_sc |> cxheatmap(scale = "row") |> draw() |> grid.grabExpr()
+C <- expr_mean[intersect(markers, rownames(expr)), cols[1:4]] |>
   cxheatmap(scale = "", title = "z-expr.", cluster_cols = FALSE,
-            fontsize = 18, rowcex = 0.8, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE)
-FigS2 %>% saveplot(file.path(params$figures, "FigureS2"), dev = params$format, width = full_width, height =  full_height*0.8)
+            fontsize = 18, rowcex = 0.7, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE) |> draw() |> grid.grabExpr()
+
+df <- (RNAmem$ora_cluster[c("UDDD","DUDD","DDUD","DDDU")] %L>% mutate(., cluster=.name)) |> Reduce(f=rbind)
+top <- RNAmem$ora_cluster[c("UDDD","DUDD","DDUD","DDDU")] %L>% subset(., padj <= 0.1) %L>% rownames()
+pw <- (top %L>% function(x) x[1:min(length(x),3)]) |> unlist() |> unique()
+df <- subset(df, ID %in% pw)
+df$cluster[df$cluster == "UDDD"] <- "TN"
+df$cluster[df$cluster == "DUDD"] <- "TSCM"
+df$cluster[df$cluster == "DDUD"] <- "TCM"
+df$cluster[df$cluster == "DDDU"] <- "TEM"
+df$cluster <- factor(df$cluster, ordered = TRUE, levels = c("TN","TSCM","TCM","TEM"))
+D <- ggplot(df, aes(cluster, ID, size=Count, color=-log10(padj))) +
+  theme_basic(base_size = 15) +
+  theme(panel.grid.major = element_line(color = "#dddddd")) +
+  geom_point() + xlab("") + ylab("")
+
+
+layout <- "
+AC
+BC
+DD
+"
+
+FigS2 <-  wrap_plots(list(A,B,C,D), guides = "keep", tag_level = "new", design = layout, heights = c(1,1,0.7))
+FigS2 <- FigS2 + plot_annotation(tag_levels = 'A',  theme = theme(plot.tag = element_text(size = 8))) & theme_fig
+if (params$label == TRUE){
+  FigS2 <- plot_grid(FigS2, textGrob("Figure S2", x = unit(0.5, "npc"), y = unit(0.55, "npc")), ncol = 1, rel_heights = c(0.95,0.05))
+}
+FigS2 %>% saveplot(file.path(params$figures, "FigureS2"), dev = params$format, width =  full_width, height =  full_height*0.9)
 
 ```
 
@@ -521,6 +550,11 @@ FigS2 %>% saveplot(file.path(params$figures, "FigureS2"), dev = params$format, w
 genes <- subset(genesets, term == "MetabolicAtlas glycolysis_gluconeogenesis")$gene
 FigS3 <- expr_mean[genes, cols[1:4]] |> cxheatmap(column_title = "MetabolicAtlas Glycolysis/Gluconeogenesis", title = "z-expr.", cluster_cols = FALSE,
                                                   fontsize = 18, rowcex = 0.8, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE)
+
+if (params$label == TRUE){
+  FigS3 <- FigS3 |> draw() |> grid.grabExpr()
+  FigS3 <- plot_grid(FigS3, textGrob("Figure S3", x = unit(0.5, "npc"), y = unit(0.5, "npc")), ncol = 1, rel_heights = c(0.95,0.05))
+}
 FigS3 %>% saveplot(file.path(params$figures, "FigureS3"), dev = params$format, width = full_width, height =  full_height*0.8)
 
 ```
@@ -586,6 +620,9 @@ EF
 
 FigS4 <-  wrap_plots(p, guides = "keep", tag_level = "new", design = layout, widths = c(1,1))
 FigS4 <- FigS4 + plot_annotation(tag_levels = 'A') & th
+if (params$format == "jpg"){
+  FigS4 <- plot_grid(FigS4, textGrob("Figure S4", x = unit(0.5, "npc"), y = unit(0.5, "npc")), ncol = 1, rel_heights = c(0.95,0.05))
+}
 FigS4 %>% saveplot(file.path(params$figures, "FigureS4"), dev = params$format, width =  full_width, height =  full_height)
 
 ```
@@ -595,7 +632,12 @@ FigS4 %>% saveplot(file.path(params$figures, "FigureS4"), dev = params$format, w
 ```{r}
 genes <- genesets |> subset(term %in% c("MitoCarta tca cycle")) |> pull(gene)
 FigS5 <- expr_mean[genes, cols[1:4]] |> cxheatmap(column_title = "MitoCarta TCA cycle", title = "z-expr.", cluster_cols = FALSE,
-                                                  fontsize = 18, rowcex = 0.8, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE)
+                                                  fontsize = 18, rowcex = 0.8, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE) 
+
+if (params$label == TRUE){
+  FigS5 <- FigS5 |> draw() |> grid.grabExpr()
+  FigS5 <- plot_grid(FigS5, textGrob("Figure S5", x = unit(0.5, "npc"), y = unit(0.5, "npc")), ncol = 1, rel_heights = c(0.95,0.05))
+}
 FigS5 %>% saveplot(file.path(params$figures, "FigureS5"), dev = params$format, width = full_width, height =  full_height*0.8)
 
 ```
@@ -614,10 +656,15 @@ genes <- list(
 df <- stack(genes) |> dplyr::rename(genes = values, shuttle = ind)
 FigS6 <- expr_mean[unlist(genes), cols[1:4]] |> cxheatmap(column_title = "NADH shuttles", title = "z-expr.", row_split = df$shuttle,
                                                           cluster_rows = FALSE, cluster_cols = FALSE,
-                                                          row_title_gp = grid::gpar(fontsize = 18),
+                                                          row_title_gp = grid::gpar(fontsize = 15),
                                                           row_gap = grid::unit(7, "pt"),
                                                           fontsize = 18, rowcex = 0.8, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE)
-FigS6 %>% saveplot(fp(params$figures, "FigureS6"), dev = params$format, width = full_width, height =  full_height*0.8)
+
+if (params$label == TRUE){
+  FigS6 <- FigS6 |> draw() |> grid.grabExpr()
+  FigS6 <- plot_grid(FigS6, textGrob("Figure S6", x = unit(0.5, "npc"), y = unit(0.5, "npc")), ncol = 1, rel_heights = c(0.95,0.05))
+}
+FigS6 %>% saveplot(fp(params$figures, "FigureS6"), dev = params$format, width = full_width, height =  full_height*0.9)
 
 ```
 
@@ -629,6 +676,11 @@ exp <- c(rep("differentiation", 4), rep("exhaustion", 2))
 FigS7 <- expr_mean[intersect(genes, rownames(expr_mean)), cols] |>
   cxheatmap(column_title = "GO L-amino acid transmembrane transporter activity", column_split = exp, title = "z-expr.", cluster_cols = FALSE,
             fontsize = 18, rowcex = 0.8, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE)
+
+if (params$label == TRUE){
+  FigS7 <- FigS7 |> draw() |> grid.grabExpr()
+  FigS7 <- plot_grid(FigS7, textGrob("Figure S7", x = unit(0.5, "npc"), y = unit(0.5, "npc")), ncol = 1, rel_heights = c(0.95,0.05))
+}
 FigS7 %>% saveplot(fp(params$figures, "FigureS7"), dev = params$format, width = full_width, height =  full_height*0.8)
 
 ```
@@ -640,6 +692,11 @@ genes <- genesets |> subset(term %in% c("MitoCarta oxphos subunits")) |> pull(ge
 FigS8 <- expr_mean[intersect(genes, rownames(expr_mean)), cols[1:4]] |>
   cxheatmap(column_title = "OXPHOS subunits", title = "z-expr.", cluster_cols = FALSE,
             fontsize = 18, rowcex = 0.6, colcex = 1.2, column_names_rot = 0, column_names_centered = TRUE)
+
+if (params$label == TRUE){
+  FigS8 <- FigS8 |> draw() |> grid.grabExpr()
+  FigS8 <- plot_grid(FigS8, textGrob("Figure S8", x = unit(0.5, "npc"), y = unit(0.5, "npc")), ncol = 1, rel_heights = c(0.95,0.05))
+}
 FigS8 %>% saveplot(fp(params$figures, "FigureS8"), dev = params$format, width = full_width, height =  full_height*0.8)
 
 ```
@@ -683,8 +740,12 @@ th <- theme(axis.text = txt,
 
 FigS9 <-  wrap_plots(A, wrap_plots(B, plot_spacer(), nrow = 1, widths = c(1, 0.3)), guides = "keep", tag_level = "new", ncol = 1)
 FigS9 <- FigS9 + plot_annotation(tag_levels = 'A') & th
+if (params$label == TRUE){
+  FigS9 <- plot_grid(FigS9, textGrob("Figure S9", x = unit(0.5, "npc"), y = unit(0.5, "npc")), ncol = 1, rel_heights = c(0.95,0.05))
+}
 FigS9 %>% saveplot(fp(params$figures, "FigureS9"), dev = params$format, width =  full_width, height =  full_height*0.6)
 ```
+
 
 
 

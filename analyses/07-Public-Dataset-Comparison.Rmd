@@ -1,0 +1,64 @@
+---
+title: "Public-Dataset-Comparison"
+author: "Alexander Kirchmair"
+params:
+  data:    ../data/public
+---
+
+```{r setup, include=FALSE}
+library(Seurat)
+library(DESeq2)
+library(limma)
+library(datamisc)
+library(dplyr)
+```
+
+
+Subset markers
+```{r}
+RNA <- list()
+RNAmem <- readRDS(fp("../data", "RNAmem.rds"))
+RNAexh <- readRDS(fp("../data", "RNAexh.rds"))
+
+RNA$counts <- cjoin(RNAmem$counts, RNAexh$counts)
+RNA$design <- full_join(mutate(RNAmem$design, Celltype = as.character(Celltype), Donor = as.character(Donor)),
+                        mutate(RNAexh$design, Exp = NULL, Celltype = as.character(Celltype), Donor = as.character(as.numeric(Donor)+3)))
+rownames(RNA$design) <- c(rownames(RNAmem$design), rownames(RNAexh$design))
+
+RNA$markers <- getmarkers(as.matrix(RNA$counts)[,rownames(RNA$design)], RNA$design, group = "Celltype", formula = ~ group, log2FC > 1 & padj < 0.05)
+RNA$markers <- lapply(RNA$markers, function(x){ x[1:min(length(x),200)] })
+```
+
+
+Comparison to public bulk RNA sequencing data
+```{r}
+public <- list()
+public$bulk <- read.csv("../data/public/cd8_subset_profiles.csv", row.names = 1)
+public$gsva_bulk <- runGSVA(public$bulk, genesets = RNA$markers)
+colnames(public$gsva_bulk) <- paste0(colnames(public$gsva_bulk), " (public)")
+```
+
+
+Comparison to public single-cell RNA sequencing data
+```{r}
+if (!file.exists(fp(params$data, "CD8_Tcellmap.rds"))){
+  download.file("https://singlecell.mdanderson.org/TCM/download/CD8",
+                fp(params$data, "CD8_Tcellmap.rds"), method = "wget")
+}
+tcellmap <- readRDS(fp(params$data, "CD8_Tcellmap.rds"))
+
+Idents(tcellmap) <- tcellmap$cell.type
+tcellmap <- NormalizeData(tcellmap)
+public$sc <- AverageExpression(tcellmap, group.by = "cell.type", assays = "RNA")[["RNA"]]
+colnames(public$sc) <- make.names(colnames(public$sc))
+public$sc <- public$sc[order(rowMeans(public$sc), decreasing = TRUE),]
+public$gsva_sc <- runGSVA(public$sc[1:15000,], genesets = RNA$markers)
+
+```
+
+
+```{r}
+saveRDS(public, "../data/public.rds")
+```
+
+

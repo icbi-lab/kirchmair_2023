@@ -1,8 +1,9 @@
-# kirchmair_2023
+## Kirchmair et al., Frontiers in Immunology 2023
 
-Data analyses for Kirchmair et al., 2023
+Data analyses for '<sup>13</sup>C tracer analysis reveals the landscape of metabolic checkpoints in human CD8<sup>+</sup> T cell differentiation and exhaustion' (Kirchmair et al., Frontiers in Immunology 2023)
 
 
+ 
 ## Environment setup
 ```bash
 # source lib/make_env.sh # initial code to make conda envs
@@ -17,7 +18,7 @@ Rscript -e 'devtools::install_github("AlexanderKirchmair/DeLuciatoR")' # version
 
 mkdir logs
 ```
-
+ 
 Set up [NGSCheckMate-1.0.0](https://github.com/parklab/NGSCheckMate)
 ```bash
 cd lib
@@ -36,8 +37,8 @@ cd ..
 ```bash
 conda activate cd8
 ```
-
-Memory differentiation samples: [GSE234099](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE234099)
+ 
+Memory differentiation samples ([GSE234099](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE234099)):
 ```bash
 mkdir -p data/rnaseq/MEM/00_RAW
 accs=$(awk 'NR>1 {print $2 "-" $1}' "tables/GSE234099.txt")
@@ -47,8 +48,8 @@ do
   while [ $(qstat -s pr | grep -w -c "DOWNLOAD") -gt 3 ]; do sleep 3; done
 done
 ```
-
-Exhaustion samples: [GSE234100](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE234100)
+ 
+Exhaustion samples ([GSE234100](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE234100)):
 ```bash
 mkdir -p data/rnaseq/EXH/00_RAW
 accs=$(awk 'NR>1 {print $2 "-" $1}' "tables/GSE234100.txt")
@@ -58,7 +59,7 @@ do
   while [ $(qstat -s pr | grep -w -c "DOWNLOAD") -gt 3 ]; do sleep 3; done
 done
 ```
-
+ 
 ### Preprocessing
 
 Trimming:
@@ -76,7 +77,7 @@ do
 done
 ```
 
-Read alignment and quantification using the [nf-core/rnaseq-3.4](https://nf-co.re/rnaseq/3.4) pipeline (set genome paths in 'lib/run_rnaseq.sh'):
+Read alignment and quantification using the [nf-core/rnaseq-3.4](https://nf-co.re/rnaseq/3.4) pipeline (set genome paths in `lib/run_rnaseq.sh`):
 ```bash
 bash -i lib/run_rnaseq.sh 'tables/samplesheet_mem.csv' 'data/rnaseq/MEM/02_NF_results'
 mv .nextflow.log logs/mem.nextflow.log
@@ -103,17 +104,21 @@ mv r_script.r.Rout data/rnaseq/EXH/samplecheck/
 Rscript lib/plot_NGSCheckMate.R
 ```
 
+Gene sets were prepared by running `Rscript lib/prepare_genesets.R`.
+
 
 ## Metabolomics data
-13C metabolomics data: 'data/metabolomics'
-
+<sup>13</sup>C metabolomics data: `data/metabolomics`
+ 
 
 ## Seahorse data
-Seahorse data: 'data/seahorse'
-
+Seahorse data: `data/seahorse`
+ 
 
 ## Analysis
-Gene sets were prepared by running 'Rscript lib/prepare_genesets.R'.
+
+The main analyses can be reproduced by rendering the the .Rmd files:
+
 ```bash
 conda activate cd8
 Rscript -e "rmarkdown::render('analyses/01-RNA-Differentiation.Rmd')"
@@ -122,12 +127,16 @@ Rscript -e "rmarkdown::render('analyses/03-RNA-Exhaustion.Rmd')"
 Rscript -e "rmarkdown::render('analyses/04-13C-Exhaustion.Rmd')"
 Rscript -e "rmarkdown::render('analyses/05-RNA-Exhaustion-Public.Rmd')"
 Rscript -e "rmarkdown::render('analyses/06-RNA-Mitochondria.Rmd')"
+Rscript -e "rmarkdown::render('analyses/07-Public-Dataset-Comparison.Rmd')"
 ```
 
 
-## Results (figures and tables)
+## Results
+
+To reproduce the final figures and tables, run:
+
 ```bash
 conda activate cd8
-Rscript -e "rmarkdown::render('analyses/07-Results.Rmd')"
+Rscript -e "rmarkdown::render('analyses/08-Results.Rmd')"
 ```
 

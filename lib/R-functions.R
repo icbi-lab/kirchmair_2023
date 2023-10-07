@@ -258,3 +258,27 @@ getLimits <- function (x, clip = TRUE, expand = 1, negative = TRUE){
 }
 
 
+getmarkers <- function(data, design, group = "Celltype", formula = ~ group, ...){
+  ct <- unique(design[[group]])
+  markers <- lapply(setNames(ct, ct), function(ctx){
+    design$group <- ifelse(design[[group]] == ctx, ctx, "other")
+    res <- runDESeq2(data, design, formula = formula, contrasts = list(de = c("group", ctx, "other")))
+    subset(res$results[[1]], ...)$gene
+  })
+  markers
+}
+
+
+hmdraw <- function(){
+  draw(hm, heatmap_legend_side = "left")
+  for(i in seq(hm_annotation)) {
+    decorate_annotation(annotation = "pathways",
+                        slice = i,
+                        code = {
+                          grid.rect(x = 0, width = unit(1, "mm"), gp = gpar(fill = hm_anno_colors[i], col = NA), just = "left")
+                          grid.text(paste(hm_annotation[[i]], collapse = "\n"), gp = gpar(col = hm_anno_colors[i], fontsize = fontsize), x = unit(5, "mm"), just = "left")
+                        })
+  }
+}
+
+

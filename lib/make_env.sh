@@ -2,7 +2,7 @@
 # Main conda env
 envname="cd8"
 installconda="nextflow=21.10.0 cutadapt=4.0 r-base=4.1.3 r-essentials \
-              bioconductor-isocorrector bioconductor-org.hs.eg.db bioconductor-clusterprofiler bioconductor-deseq2 bioconductor-ihw \
+              bioconductor-isocorrector bioconductor-org.hs.eg.db bioconductor-clusterprofiler bioconductor-deseq2 bioconductor-ihw bioconductor-gsva \
               bioconductor-geoquery bioconductor-complexheatmap bioconductor-biomart bioconductor-limma bioconductor-tximport bioconductor-tcgabiolinks \
               r-nlme r-glmmtmb r-contrast r-multcomp r-betareg r-msigdbr r-r.utils r-dendsort r-pals \
               r-ggpubr r-dplyr r-tibble r-openxlsx r-ggplot2 r-ggrepel r-devtools r-crayon"
