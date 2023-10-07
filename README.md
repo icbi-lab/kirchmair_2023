@@ -1,6 +1,6 @@
 ## Kirchmair et al., Frontiers in Immunology 2023
 
-Data analyses for '<sup>13</sup>C tracer analysis reveals the landscape of metabolic checkpoints in human CD8<sup>+</sup> T cell differentiation and exhaustion' (Kirchmair et al., Frontiers in Immunology 2023)
+Data analyses for _<sup>13</sup>C tracer analysis reveals the landscape of metabolic checkpoints in human CD8<sup>+</sup> T cell differentiation and exhaustion (Kirchmair et al., Frontiers in Immunology 2023)_
 
 
  
